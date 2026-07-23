@@ -1,0 +1,5 @@
+Thanks go to Gunnar Lott and Christian Schmidt which inspired me to have interest in this game.
+The map fron Gunnar was essential to get this project so far so quickly.
+
+You can get the map and an excel sheet with lots of information at
+https://www.stayforever.de/
