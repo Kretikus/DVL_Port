@@ -433,6 +433,35 @@ ROOM_LOOK_MESSAGE: dict[int, int | list] = {
 }
 
 
+# FIRST-VISIT scripted scenes - shown once, the first time a room is
+# entered, instead of the room's normal look text (ROOM_LOOK_MESSAGE
+# above). Confirmed via a user-supplied real DOSBox screenshot (entering
+# Forolls Schmiede for the first time) matched byte-for-byte against
+# messages 123-124 in decompressed STORY - see PHASE0_FINDINGS.md's
+# newest addendum. Distinct from ROOM_LOOK_MESSAGE's room 3 entry (126),
+# which is the STANDING text shown on every later visit.
+ROOM_FIRST_VISIT_MESSAGE: dict[int, int | list] = {
+    3: [123, 124],  # door creaks open (123) + Foroll's full greeting,
+                    # ending in the exact confirmed line "'Tja, habts er
+                    # denn auch Geld? Macht genau 7 Gerfs.'" - the
+                    # hardcoded, scripted price for the starting
+                    # dagger+sword bundle (see GameState.buy_starter_weapons,
+                    # game.py - NOT part of the generic item_stats.py shop
+                    # table, confirmed absent from WORLD Section 1 for
+                    # "Dolch" specifically).
+}
+
+
+def first_visit_text(story, room_number: int) -> str | None:
+    """Full concatenated FIRST-VISIT text for `room_number`, or None if
+    this room has no confirmed scripted first-visit scene."""
+    entry = ROOM_FIRST_VISIT_MESSAGE.get(room_number)
+    if entry is None:
+        return None
+    items = entry if isinstance(entry, list) else [entry]
+    return " ".join(story.message(i) for i in items)
+
+
 def look_text(story, room_number: int, narrator: Character = DEFAULT_NARRATOR) -> str | None:
     """Full concatenated "look" text for `room_number`, or None if not
     yet mapped. `story` is a story.Story instance. `narrator` selects

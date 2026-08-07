@@ -36,9 +36,51 @@ the technique to use for real progress here, not text adjacency.
 Multiple German words can map to the same code (synonyms/case forms);
 matching is case-insensitive and diacritic-insensitive-ish (see
 `normalize()`). Where an object's precise identity among 2+ candidates
-in the same room isn't confirmed (e.g. "one of these codes is Sklar,
-the other is Phira, order unconfirmed"), it is deliberately left OUT
-rather than guessed - see the comments for what's missing and why.
+in the same room isn't confirmed and no stronger evidence (real
+gameplay text, a disassembled print-order trace, etc.) exists, it is
+deliberately left OUT rather than guessed - see the comments for what's
+missing and why.
+
+Room 1's two tracked objects (32/33) and room 2's two tracked objects
+(30/31) are both still-open pairs - NOT "Sklar/Phira" or "Agima/Har" as
+an earlier, looser guess in this docstring once assumed. Room 1's own
+STANDING description narrates "meine Eltern, Sklar und Phira" as fixed
+scene-setting prose, and room 2 ("Smirgas Elternhaus", found via room
+67's own West exit) is presumably Agima+Har's home by the same logic -
+but that prose does NOT reliably describe which objects the engine
+currently tracks as present (see PHASE0_FINDINGS.md UPDATE 25's
+follow-up): Sklar and Har are both confirmed (object 26 and object 25
+respectively, see below) to be NPCs that move between their home room
+and Hyllok's shared village square (room 67) - real user-confirmed
+gameplay behavior, not a guess. UPDATE 54 adds a third confirmed Har
+location (room 8, the Speisekammer), so this movement is wider than a
+simple two-room toggle - still entirely unmodeled in this port (Har/
+Sklar aren't in `DAY_ROSTER`/`NIGHT_ROSTER`, they just sit static
+wherever the bundled save left them). Whichever objects rooms 1/2
+currently track in this project's bundled save (32/33 and 30/31) are a
+separate, still-unconfirmed question - PROBABLY people, not household
+items: a user hypothesis, tested and confirmed in PHASE0_FINDINGS.md
+UPDATE 26, found that essentially every object with a tracked instance
+(i.e. `world.py`'s `flags[code].has_instance`) is a person/creature,
+while every confirmed portable ITEM (weapons, armor, tools - the 17
+merchant-price-confirmed entries below) has NO tracked instance at all.
+Since 32/33/30/31 DO have tracked instances, "Brot"/"Ei"/a coffee pot
+(all real, user-observed takeable items at room 1) are now considered
+UNLIKELY to be among them - more likely "Phira" (Aszhanti's mother) is
+one of 32/33 and "Agima" is one of 30/31. **UPDATE 54**: both names are
+now independently confirmed as real (not just room 1's flavor text or
+`reference/map.json`'s room-2 listing) - a live memory dump of room 2
+with only Agima present (Har having left for the Speisekammer) showed
+the game's own composited "wer ist hier" buffer literally contained
+"Agima ist hier.", and the same dump's memory also contains the game's
+complete 39-entry name table with "Phira" as one of its entries. This
+strengthens confidence both names are genuinely in play, but does NOT
+by itself say which of 30/31 (or 32/33) is which - still not confirmed
+by any method that resolves the specific code, so still not added here.
+(CAUTION: don't try the "object's own instance-record name-pointer"
+approach again to resolve this - conclusively shown unreliable in
+UPDATE 26's correction, giving garbled mid-sentence fragments for
+every object tried, including already-confirmed ones.)
 
 FIRST REAL ENTRIES (this session): a fundamentally different, stronger
 form of evidence than the discredited text-adjacency method above -
@@ -46,8 +88,8 @@ cross-referencing an object's TRACKED LOCATION (`world.object_location`,
 ground truth from RESTORE) against `reference/map.json`'s per-room
 named-object lists, restricted to rooms where there is EXACTLY ONE
 tracked object AND EXACTLY ONE named NPC/item listed for that room (no
-ambiguity to resolve, unlike room 1/2's Sklar-Phira / Agima-Har
-situations, which remain deliberately unnamed). Confirmed this way:
+ambiguity to resolve, unlike room 1's still-open two-object pair).
+Confirmed this way:
 Foroll (Hyllok's blacksmith), the farmer at the cornfield, Oerli
 (Scarbloom's innkeeper), a beggar at the market, Gultiba (the
 shopkeeper), Nichidor (Scarbloom's blacksmith), Skeeve (the wizard),
@@ -61,6 +103,20 @@ added a stone cross, a lake creature (Tuatara), and both dragons
 (Tatzelwurm, then Lindwurm for the second, three-headed one fought in
 room 108) the same way, using each room's own confirmed text directly
 where the fan map had no matching node to cross-check against.
+
+INDEPENDENT CORROBORATION (found while investigating combat/shopping via
+emulation - see the `laas` analysis project's PHASE0_FINDINGS.md UPDATE
+16): 8 of these 13 codes (Foroll/34, Gultiba/188, Nichidor/194,
+Skeeve/199, Potidan/243, the bridge troll/134, the stone cross/105, the
+market beggar/183) also appear as object-code keys in the `WORLD` file's
+Section 2 (item/NPC description-pointer table), and the farmer/99 in
+Section 3 - a completely different data source than the room-location +
+fan-map method that originally confirmed them, reached only because that
+investigation happened to decode WORLD's other sections along the way.
+Oerli/142, Tuatara/146, and both dragons (237/238) do NOT appear in
+either section - plausibly because monsters/dragons and this specific
+innkeeper use a different in-game description path, not because the
+existing identifications are in doubt.
 """
 from __future__ import annotations
 
@@ -71,6 +127,25 @@ OBJECT_NAMES: dict[int, list[str]] = {
               # sole tracked object there, matches map.json's "Schmiede" (Hyllok) -> ["Foroll"].
     99: ["bauer"],    # the farmer at the cornfield - room 20, sole tracked object, matches
               # map.json's "Kornfeld" -> ["Bauer"].
+    162: ["oger"],    # a monster, confirmed via a DIRECT CODE reference, not room/fan-map
+              # inference: FEBR's rare bonus-hit branch in sub_879F (see PHASE0_FINDINGS.md
+              # UPDATE 38) is gated on `di == 0xe` (instance index 14, which resolves to
+              # object 162) and its own success message (STORY message 660) explicitly names
+              # the target "den Oger" twice ("blendet sie den Oger ein wenig und Smirga kann
+              # einen Schlag plazieren, der dem Oger 1 Schadenspunkt zufügt"). Currently
+              # off-stage (LIMBO_REMOVED) in this project's bundled save - a wandering
+              # creature, not a fixed encounter.
+    35: ["mygra"],    # the alchemist/"Scharlatan" - room 4 ("Mygras Haus" per its own
+              # resolved text - potion equipment, herbs, alchemy tools, matching STORY
+              # message 1617's description of Mygra as "ein alter Mann...der sich sein
+              # Leben lang nur mit Kräutern, Tränken und Magie beschäftigt hat"), sole
+              # tracked object there (found via UPDATE 26/27's follow-up systematic sweep
+              # of the remaining unnamed instance-tracked codes - PHASE0_FINDINGS.md).
+              # map.json's matching node ("Beim Scharlatan") lists TWO names, "Mygra" and
+              # "Drachenblut" - the latter is an ITEM (dragon's blood, presumably a potion
+              # ingredient), consistent with UPDATE 26's confirmed rule that items don't
+              # get a tracked instance - explaining why only one object (this one) is
+              # tracked here, and confirming it must be Mygra (the person), not the item.
     142: ["oerli"],   # Scarbloom's second-tavern innkeeper - room 72, sole tracked object,
               # matches map.json's "Taverne" -> ["Oerli"] (also self-confirmed in-game: the
               # NPC introduces himself by name, "isch bin Oerli, dèr Wirt dieses Hotèls").
@@ -116,6 +191,134 @@ OBJECT_NAMES: dict[int, list[str]] = {
               # creatures, not the same dragon referred to two ways. No independent map.json
               # cross-check (its "Ruine" node lists different names, "Knochen"/"Harpyie" -
               # likely separate scenery/creature entries in that room, not this one).
+
+    # CONFIRMED VIA A FOURTH, INDEPENDENT METHOD (user-supplied real gameplay
+    # data, Laas_CS.xlsx's "Händler" sheet - real prices collected from both
+    # in-game merchants, Yarom and Gultiba): cross-referenced against
+    # item_stats.py's WORLD Section 1 records by matching all 4 price fields
+    # simultaneously (buy-from-player and sell-to-player, for both
+    # merchants) - a numeric 4-way match is far stronger evidence than any
+    # single-field coincidence. See PHASE0_FINDINGS.md's newest UPDATE for
+    # the full cross-reference and the corrected field semantics this
+    # revealed (item_stats.py's docstring previously had field 2/4 merged
+    # into one "buy price" - they're actually separate per-merchant buy
+    # prices, Yarom's and Gultiba's respectively).
+    233: ["agitor"],
+    201: ["cape"],
+    85: ["schuessel", "schüssel"],
+    8: ["fackel"],
+    46: ["feldflasche"],
+    172: ["flasche"],
+    154: ["heilkraut"],
+    138: ["netz"],
+    196: ["echsenpanzer"],  # CORRECTS an earlier misreading: this object code
+              # was previously assumed to be an equipped WEAPON (one of three
+              # values compared for a "weapon class" in the combat formula -
+              # see unicorn_combat.py/PHASE0_FINDINGS.md UPDATE 17). It's
+              # actually lizard-scale ARMOR - the combat mechanic is armor
+              # class, not weapon class. Renamed throughout on discovery.
+    171: ["axt"],
+    206: ["skarabaeus", "skarabäus"],
+    14: ["schild"],  # object 14 appears twice in WORLD Section 1 with
+              # different stats (a real duplicate key, confirmed dead data
+              # for the second occurrence - see item_stats.py); this name
+              # matches the FIRST occurrence's prices exactly.
+    241: ["schuppen"],
+    108: ["seil"],
+    227: ["zeron"],
+    264: ["lederwams"],  # ALSO one of the three "armor class" values (see
+              # echsenpanzer's note above) - cheap leather armor.
+    52: ["kettenhemd"],  # ALSO one of the three "armor class" values -
+              # chainmail, the most expensive of the three, matching it
+              # being the highest-numbered armor class (biggest damage
+              # reduction).
+    # Two items share IDENTICAL prices in the real data (Ruder/oar and
+    # Schwert/sword both price as (10,20,15,25)), so object codes 152 and 86
+    # can't be told apart by price alone - deliberately left unmapped rather
+    # than guessed, matching this file's established discipline.
+
+    # CONFIRMED VIA A FIFTH METHOD (user-reported real gameplay text at
+    # room 67 - "Har und Sklar sind hier" - combined with a direct
+    # disassembly trace, not a guess): room 67 tracks exactly two objects,
+    # 25 and 26. Found the actual "who's present" room-object-lister
+    # function (flat 0xF21E-0xF35E in the `laas` analysis project) - it
+    # iterates object codes in strict ASCENDING order (di = 0, 1, 2, ...,
+    # checking each instance's own stored room field against the current
+    # room) and only switches the trailing "ist hier"/"sind hier" text
+    # based on how many objects were found, printing names in that same
+    # ascending order. Since 25 < 26 and the confirmed text names "Har"
+    # before "Sklar", object 25 = Har and object 26 = Sklar - not a
+    # 50/50 guess, an order derived directly from the printing code.
+    # NOTE: this corrects an earlier, vaguer assumption in this module's
+    # own docstring/history that "Sklar" might be one of room 1's two
+    # tracked objects (32/33, alongside a guessed "Phira") - Sklar is
+    # now known to be object 26, not part of that still-unresolved pair.
+    # Cross-checked against `reference/map.json`: "Smirgas Elternhaus"
+    # lists ["Agima", "Har"] and "Aszhantis Elternhaus" lists ["Brot",
+    # "Ei", "Sklar"] - consistent with Har being Smirga's father and
+    # Sklar being Aszhanti's father, both currently standing in Hyllok's
+    # village square (room 67) rather than their own houses in this
+    # particular save state.
+    25: ["har"],
+    26: ["sklar"],
+
+    # CONFIRMED VIA A SEVENTH METHOD (UPDATE 58): user-reported real
+    # gameplay mechanic - a Salami sits in room 8 (Speisekammer) at the
+    # start of the game, but Har takes it within the first few turns
+    # unless the player gets there first. `reference/map.json` lists
+    # room "Speisekammer" with exactly one object, "Salami"; room 8's
+    # own STANDING description (already ported) independently mentions
+    # "Eine große Salami hängt an einem Haken..."; and a walkthrough
+    # comment already sitting in `room_text.py` cites "gleich am Anfang
+    # die Salami nehmen, bevor Papi sie klaut" (Papi = Har). This
+    # discovery led directly to fixing a real bug in `world.py`'s
+    # `object_location()` (it silently returned None for every non-
+    # instance-tracked object, discarding real location data) - object
+    # 11 is the ONLY object code whose raw flags word reads exactly `8`
+    # (room 8) in the bundled save, matching the fan map's single-object
+    # room exactly. Independently confirmed via two user-supplied
+    # screenshots of real gameplay showing the exact STORY text: "Har
+    # steckt die Salami ein, die hier herumlag." (Har pockets the Salami
+    # that was lying around here.)
+    11: ["salami"],
+
+    # CONFIRMED VIA A SIXTH METHOD (direct disassembly trace of the price-
+    # quote dialogue itself, not room/fan-map inference): the function at
+    # flat 0xDD94 (the "make an offer" dialogue handler) contains a branch
+    # gated on `cmp word ptr [bp-2], 0xA7` (167) that, after checking the
+    # named item is one Yarom buys, calls a price-computation routine and on
+    # success prints STORY message 1568 verbatim - "Yarom denkt kurz nach.
+    # 'Also ich würde euch %d Gerfs dafür geben!'" - and on rejection prints
+    # message matching dseg 0x9dd6, "Yarom schüttelt den Kopf. 'Damit kann
+    # ich nichts anfangen.'". `[bp-2]` is loaded from dseg 0xaaf8/0xb3f4,
+    # the same "current dialogue-partner object code" variable used
+    # throughout seg005's dispatch handlers. This directly resolves the
+    # previously-unidentified object 167 (see PHASE0_FINDINGS.md's earlier
+    # "not resolved, not guessed at" note for 167/room 44 and 202/room 98) -
+    # 167 is tracked at room 44 in this project's bundled save, a generic
+    # wilderness room with no NPC named in its own static text, consistent
+    # with Yarom being a wandering merchant who just happens to be passing
+    # through there rather than living in a fixed shop like Gultiba.
+    167: ["yarom"],
+
+    # CONFIRMED VIA A SEVENTH METHOD (tracing the master per-turn "ambient
+    # event" dispatcher, flat 0x64A3-0x6A5F in the `laas` analysis project -
+    # see PHASE0_FINDINGS.md UPDATE 40): object 202, previously flagged
+    # "not resolved, not guessed at" (tracked at room 98), is Sabrina, a
+    # witch. The dispatcher's room-98 branch is a staged encounter whose
+    # warning-stage message names her directly ("Wir wollen zur Türe
+    # fliehen, doch Sabrina ist schon im Raum gelandet") and whose final
+    # stage - right where her instance's location gets forced to the
+    # confirmed LIMBO_REMOVED sentinel - describes her fleeing ("...schnappt
+    # sich ihren Besen und zischt durch den Kamin davon", grabs her broom
+    # and zips away through the chimney). Cross-checked against 20+ other
+    # STORY messages: she's "die Hexe aus den Sümpfen" (the witch from the
+    # swamps, message 1128), the target of a fetch-quest for Skeeve (199,
+    # already confirmed) - and message 1150/1271 confirm Cape (201,
+    # already confirmed) is specifically an invisibility cloak for sneaking
+    # past her ("Es macht euch für einige Minuten unsichtbar...benutzt es
+    # nur bei Sabrina!").
+    202: ["sabrina", "hexe"],
 }
 
 

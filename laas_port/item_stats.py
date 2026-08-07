@@ -14,12 +14,23 @@ Record layout (10 bytes, `-1,-1,-1,-1,-1`-terminated):
     object_code: i16
     field1, field2, field3, field4: i16
 
-Field 2 is confirmed (seg005_batch4.md fn 10, cross-checked against
-`word_2B974`, the player's money global) as the price the player pays
-to BUY the item from a shop. Fields 1 and 3 are confirmed (same batch,
-a different call site) as two DIFFERENT merchant NPCs' (Yarom, Gultiba)
-buy-FROM-player offers for the same item - not interchangeable with
-field 2's meaning, and not necessarily equal to each other.
+FIELD SEMANTICS, fully confirmed (corrected from an earlier, incomplete
+reading): cross-referenced every record against real prices the user
+collected in-game from both merchants (Laas_CS.xlsx's "Händler" sheet)
+by matching all 4 fields simultaneously - a 4-way numeric match per
+item, not a single-field coincidence. The two merchant NPCs are
+**Yarom** and **Gultiba** (named in seg005_batch4.md's resolved dialogue
+text), and each has his OWN separate buy-from-player and sell-to-player
+price - NOT one shared "buy price" as an earlier pass here assumed:
+
+    field1 = Yarom's buy-FROM-player offer   ("Verkaufen" in the sheet)
+    field2 = price to buy FROM Yarom         ("Kaufen" in the sheet)
+    field3 = Gultiba's buy-FROM-player offer ("Verkaufen" in the sheet)
+    field4 = price to buy FROM Gultiba       ("Kaufen" in the sheet)
+
+`buy_price()` below returns field 2 (Yarom's price) as a convenience
+default - Gultiba's own buy price (field 4) can differ and isn't
+exposed as a separate method yet.
 
 IMPORTANT, confirmed via emulation: object code 14 appears TWICE in the
 real table with different stats (`(15,30,25,40)` and `(20,50,30,55)`).
@@ -68,7 +79,7 @@ class ItemStats:
         return 0
 
     def buy_price(self, object_code: int) -> int:
-        """Field 2 - the price the player pays to buy this item from a
-        shop (confirmed via seg005_batch4.md fn 10's word_2B974 check).
-        0 if this object isn't a shop item at all."""
+        """Field 2 - the price to buy this item from Yarom specifically
+        (see the module docstring's corrected field semantics). 0 if
+        this object isn't one of Yarom's shop items at all."""
         return self.lookup(object_code, 2)

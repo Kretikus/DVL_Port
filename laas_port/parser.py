@@ -57,6 +57,30 @@ VERB_ALIASES = {
     "unlock": "UNLOCK", "aufschliessen": "UNLOCK",
     "save": "SAVE", "speichere": "SAVE", "speichern": "SAVE", "sichern": "SAVE",
     "load": "LOAD", "lade": "LOAD", "laden": "LOAD",
+    "buy": "BUY", "kaufe": "BUY", "kaufen": "BUY",
+    "sell": "SELL", "verkaufe": "SELL", "verkaufen": "SELL",
+    # "zustand" matches the original's own STATUS menu item name (STORY
+    # message 1456, "Zustandsübersicht.") - see levels.py/game.py.status().
+    "zustand": "STATUS", "status": "STATUS",
+    # ANLEGEN - the real, confirmed armor-equip verb (sub_133BE - see
+    # PHASE0_FINDINGS.md UPDATE 23's follow-up / game.py's equip()).
+    "equip": "EQUIP", "anlege": "EQUIP", "anlegen": "EQUIP", "ausruesten": "EQUIP",
+    # PORT UTILITY verb spelling: the real typed trigger word for combat
+    # (verb code 0x24 in sub_9F20's dispatch - see PHASE0_FINDINGS.md
+    # UPDATE 24) was never identified, only the ambush/scripted trigger
+    # path was. These are reasonable German choices, not a confirmed
+    # in-game command - see combat.py/game.py.attack().
+    "attack": "ATTACK", "attackiere": "ATTACK", "greife": "ATTACK", "kaempfe": "ATTACK",
+    "flee": "FLEE", "fliehen": "FLEE", "flieh": "FLEE",
+    # GIB - confirmed real verb (reference/walkthrough_de.txt: "Den
+    # Skarabäus gibt man in Hyllok Mygra..." - see PHASE0_FINDINGS.md
+    # UPDATE 45 / game.py's give()). "gib X Y" - noun is the whole
+    # "<item> <recipient>" text; give() splits it itself.
+    "give": "GIVE", "gib": "GIVE", "gebe": "GIVE",
+    # SCHLAFEN - confirmed real verb (sub_10792 - see PHASE0_FINDINGS.md
+    # UPDATE 50 / game.py's sleep()).
+    "sleep": "SLEEP", "schlafe": "SLEEP", "schlaf": "SLEEP", "schlafen": "SLEEP",
+    "uebernachte": "SLEEP", "übernachte": "SLEEP",
     # PORT UTILITY, not a reconstructed original verb - see characters.py's
     # docstring and game.py's CHARACTER handling: no evidence of an in-game
     # character-switch command was found in the disassembly (word_b722 is

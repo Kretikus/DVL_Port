@@ -158,6 +158,51 @@ class ObjectInstance:
     def location(self) -> int:
         return struct.unpack_from("<H", self.raw, INSTANCE_LOCATION_OFFSET)[0]
 
+    # Combat stats - confirmed by tracing sub_879F's own setup code (the
+    # `laas` analysis project's PHASE0_FINDINGS.md UPDATE 17/24): the
+    # first 3 bytes of an instance record are read directly as a
+    # creature's HP, its own "attack" threshold, and its own "defense"
+    # threshold - `si=word_16A4+code*32; word_8128=byte[si]; word_b8e2=
+    # byte[si+1]; word_b8e4=byte[si+2]`. Only meaningful for object
+    # codes that represent a creature actually fought via `sub_879F` -
+    # calling this on a non-creature instance (e.g. Har/Sklar) reads
+    # real bytes but they mean nothing combat-wise.
+
+    @property
+    def hp(self) -> int:
+        return self.raw[0]
+
+    @property
+    def attack(self) -> int:
+        """The creature's own roll-threshold for successfully hitting
+        the player - see combat.py's docstring for the (initially
+        counterintuitive) comparison direction this participates in."""
+        return self.raw[1]
+
+    @property
+    def ambush_eligible(self) -> bool:
+        """`raw[4]` != 0 - confirmed via `sub_C301`, the real random-
+        encounter trigger (see PHASE0_FINDINGS.md UPDATE 30). Checked
+        against every confirmed identity in this project: every static
+        NPC (Foroll, Mygra, Bauer, etc.) is False; every confirmed real
+        combat creature (Brückentroll, both dragons, Tuatara) is True,
+        alongside ~15 more unnamed True entries with real hp - a clean,
+        useful signal even though the REAL per-monster valid-room-list
+        restriction (a separate far pointer in this same record)
+        couldn't be resolved (its target memory isn't reconstructable
+        from static analysis - see UPDATE 30). One known exception:
+        Steinkreuz (a stationary landmark) is also True despite not
+        being a creature - not a 100%-clean rule, but strong enough to
+        drive this port's simplified ambush check (see game.py's
+        `_check_ambush()`)."""
+        return self.raw[4] != 0
+
+    @property
+    def defense(self) -> int:
+        """The creature's own roll-threshold the PLAYER must clear to
+        hit it - see combat.py's docstring."""
+        return self.raw[2]
+
 
 @dataclass
 class ObjectFlags:
@@ -215,24 +260,55 @@ class World:
         return self.rooms[number]
 
     def object_location(self, object_code: int) -> int | None:
-        """Current room of `object_code`, or None if it has no tracked
-        instance (most of the 250 objects are static/scenery and never
-        move - only the 39 tracked instances do)."""
+        """Current room of `object_code`, or None if no location can be
+        resolved.
+
+        CORRECTED (see PHASE0_FINDINGS.md UPDATE 58): for instance-
+        tracked objects (`flag.has_instance`), the location comes from
+        the 39-slot instance table as before. For the other ~224
+        objects, this method used to always return None on the
+        assumption the flags word was meaningless for them - WRONG,
+        found while chasing a real gameplay report (a Salami sitting in
+        room 8): the raw flags word for a non-instance object directly
+        encodes ITS OWN current location using the same conventions -
+        confirmed two ways: a known starter weapon (Axt) reads exactly
+        `LIMBO_CARRIED` while genuinely carried, and Salami's own code
+        reads exactly `8` while confirmed (via a live screenshot) to be
+        sitting in room 8 (Speisekammer). Only `LIMBO_CARRIED` and real
+        room numbers (1-`ROOM_COUNT`) are treated as resolved here - a
+        large, distinct band of raw values (roughly 110-298, dense and
+        sequential, clearly a different numbering space since only
+        `ROOM_COUNT` real rooms exist) almost certainly represents
+        unpurchased items still sitting in a merchant's own stock, not
+        a room - not yet decoded, so deliberately still returned as
+        None rather than guessed at."""
         if object_code >= len(self.flags):
             return None
         flag = self.flags[object_code]
-        if not flag.has_instance or flag.instance_index >= len(self.instances):
-            return None
-        return self.instances[flag.instance_index].location
+        if flag.has_instance:
+            if flag.instance_index >= len(self.instances):
+                return None
+            return self.instances[flag.instance_index].location
+        raw = flag.raw_word
+        if raw == LIMBO_CARRIED or 1 <= raw <= ROOM_COUNT:
+            return raw
+        return None
 
     def objects_in_room(self, room_number: int) -> list[int]:
         """Only finds objects with a TRACKED instance (39 of the 250
-        object codes - the ones that can actually move: NPCs, monsters,
-        carried/movable items). The other ~211 object codes are static
-        scenery with no location record in this system at all, and
-        their room association hasn't been traced yet (see objects.py's
-        module docstring) - this will under-report what's really in a
-        room until that's solved."""
+        object codes). CONFIRMED this is overwhelmingly a "people and
+        creatures" mechanism, not a general movable-items one (see the
+        `laas` analysis project's PHASE0_FINDINGS.md UPDATE 26): every
+        one of this project's 15 confirmed NPC/creature names has a
+        tracked instance, while every one of the 17 confirmed portable
+        ITEMS (weapons, armor, consumables - see names.py) has NONE.
+        Real, user-observed portable items (e.g. room 1's Brot/Ei/a
+        coffee pot) apparently use a different, not-yet-understood
+        mechanism entirely - NOT this one. The other ~211 object codes
+        (mostly static scenery, but evidently also ordinary portable
+        items) have no location record in this system at all - this
+        will under-report what's really takeable in a room until that
+        other mechanism is found."""
         return [
             code
             for code in range(len(self.flags))
