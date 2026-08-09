@@ -282,6 +282,52 @@ OBJECT_NAMES: dict[int, list[str]] = {
     # that was lying around here.)
     11: ["salami"],
 
+    # CONFIRMED VIA AN EIGHTH METHOD (UPDATE 68, disassembly trace of
+    # the farmer's harvest-help quest - see game.py's FARMER_* constants
+    # and helfen()): the walkthrough's own text ("Vom Bauern kriegt Ihr
+    # Schinken, wenn Ihr ihm auf dem Feld helft") is confirmed
+    # word-for-word by STORY message 357 ("...läßt es sich der Bauer
+    # nicht nehmen, uns einen großen Schinken einzupacken..."), and the
+    # disassembly's own quest-completion code pushes object code 21
+    # directly into a "give object" call right after printing that same
+    # message. Object 21 itself is unnamed/unpriced/non-instance-
+    # tracked in the raw data - consistent with a free reward item, not
+    # independently corroborated by a second source the way some other
+    # codes are.
+    21: ["schinken"],
+
+    # CONFIRMED VIA A NINTH METHOD (UPDATE 69, disassembly trace of the
+    # Tuatara bounty/diplomacy quest - see game.py's TUATARA_* constants):
+    # Phadraig (already named via UPDATE 54's master name-table find,
+    # but never placed anywhere) is confirmed as instance index 12's...
+    # no - confirmed as object 147 directly: the quest-offer dispatcher
+    # gates its whole block on `cmp di, 0x93` (147) before the fishing-
+    # village dialogue plays, and message 556 has him introduce himself
+    # by name ("'Freut mich', erwidert er. 'Ich bin Phadraig.'").
+    # Ruder (oar) is confirmed as object 152: the SAME dispatcher checks
+    # `cmp si, 0x98` (152) specifically in the branch that prints
+    # message 1958 ("...nimmt mir das Ruder aus der Hand"), resolving
+    # the ambiguity this file's own price-collision note (152 vs 86)
+    # had left open - Ruder is 152, leaving 86 for Schwert by
+    # elimination (still not independently confirmed for 86 itself).
+    147: ["phadraig"],
+    152: ["ruder"],
+
+    # CONFIRMED VIA A TENTH METHOD (UPDATE 70, disassembly trace of
+    # Potidan's Mondscheinkraut quest - see game.py's POTIDAN_*
+    # constants): the herb is confirmed as object 64 via the SAME
+    # give-dispatch convention as Ruder/152 above - Potidan's own topic
+    # dispatcher gates its reward branch on `cmp si, 0x40` (64). The
+    # Skelett (skeleton) is confirmed as object 244 by cross-referencing
+    # the ALREADY-PORTED `NIGHT_ROSTER` entry `244: 28` (previously
+    # placed without a confirmed name) against room 28's own night-
+    # arrival/dawn-departure message pair (1553/1552), which describe
+    # exactly one creature: "ein Skelett mit blanken Knochen entsteigt
+    # dem feuchten Erdreich" / "das Skelett wird zurück ins Erdreich
+    # gesaugt".
+    64: ["mondscheinkraut", "kraut"],
+    244: ["skelett"],
+
     # CONFIRMED VIA A SIXTH METHOD (direct disassembly trace of the price-
     # quote dialogue itself, not room/fan-map inference): the function at
     # flat 0xDD94 (the "make an offer" dialogue handler) contains a branch

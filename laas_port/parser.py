@@ -41,10 +41,25 @@ DIRECTION_WORDS = {
     "se": "SE", "suedosten": "SE", "südosten": "SE", "suedost": "SE", "südost": "SE",
     "sw": "SW", "suedwesten": "SW", "südwesten": "SW", "suedwest": "SW", "südwest": "SW",
     "nw": "NW", "nordwesten": "NW", "nordwest": "NW",
+    # "oben"/"hinauf"/"rauf" - NOT a distinct direction: room 2's slot-7
+    # exit is confirmed real "Oben" (a staircase), but the SAME exit-
+    # table slot is confirmed real "Nordwesten" for other rooms (e.g.
+    # room 18) - see world.py's DIRECTION_NAMES comment (PHASE0_
+    # FINDINGS.md UPDATE 66) for the full correction. These are just
+    # additional aliases for the same "NW" move everywhere; only
+    # game.py's `exits()` (the F2 display) knows room 2's slot 7 should
+    # be PRINTED as "Oben" instead of "Nordwesten".
+    "oben": "NW", "hinauf": "NW", "rauf": "NW",
 }
 
 VERB_ALIASES = {
     "look": "LOOK", "schau": "LOOK", "schaue": "LOOK", "l": "LOOK", "umsehen": "LOOK",
+    # EXITS - the real game's "F2" key shortcut (PHASE0_FINDINGS.md
+    # UPDATE 61, user-supplied real gameplay text: "Unmittelbare
+    # Ausgänge führen..."). This port has no raw function-key input, so
+    # it's exposed as a typed verb instead - "exits" matches how the
+    # user themselves typed it when invoking F2 in their own transcript.
+    "exits": "EXITS", "ausgaenge": "EXITS", "ausgänge": "EXITS",
     "examine": "EXAMINE", "untersuche": "EXAMINE", "betrachte": "EXAMINE", "x": "EXAMINE",
     "take": "TAKE", "nimm": "TAKE", "nehme": "TAKE", "g": "TAKE",
     "drop": "DROP", "lege": "DROP", "leg": "DROP", "wirf": "DROP",
@@ -62,6 +77,13 @@ VERB_ALIASES = {
     # "zustand" matches the original's own STATUS menu item name (STORY
     # message 1456, "Zustandsübersicht.") - see levels.py/game.py.status().
     "zustand": "STATUS", "status": "STATUS",
+    # SPELLS - the real game's "F5 Zaubersprüche" shortcut (STORY
+    # message 1460, "Zaubersprüche.") - see game.py's spells().
+    "zaubersprueche": "SPELLS", "zaubersprüche": "SPELLS", "spells": "SPELLS",
+    # BILD - the real game's "F6"/Entf picture-viewer shortcut (the
+    # confirmed "What Picture ?" debug prompt - see game.py's bild()
+    # and pictures.py, PHASE0_FINDINGS.md UPDATE 71).
+    "bild": "BILD",
     # ANLEGEN - the real, confirmed armor-equip verb (sub_133BE - see
     # PHASE0_FINDINGS.md UPDATE 23's follow-up / game.py's equip()).
     "equip": "EQUIP", "anlege": "EQUIP", "anlegen": "EQUIP", "ausruesten": "EQUIP",
@@ -77,6 +99,24 @@ VERB_ALIASES = {
     # UPDATE 45 / game.py's give()). "gib X Y" - noun is the whole
     # "<item> <recipient>" text; give() splits it itself.
     "give": "GIVE", "gib": "GIVE", "gebe": "GIVE",
+    # HELFEN - a PORT UTILITY verb name (the real typed word was never
+    # confirmed, same caveat as ATTACK above), built for the one
+    # confirmed real interaction it unlocks - see game.py's FARMER_*
+    # constants/helfen() (PHASE0_FINDINGS.md UPDATE 68).
+    "hilf": "HELFEN", "helfe": "HELFEN", "helfen": "HELFEN",
+    # The Tuatara bounty/diplomacy quest's own PORT UTILITY verbs (real
+    # typed words unconfirmed, same caveat as ATTACK/HELFEN above) -
+    # see game.py's TUATARA_* constants (PHASE0_FINDINGS.md UPDATE 69).
+    # "rudere"/"klettere" match the walkthrough's own phrasing exactly
+    # ("Ins Boot klettern", "Dreimal durch das Wasser rudern");
+    # "gruesse"/"bitte"/"danke" match its "Grüße Tuatara. Bitte Tuatara
+    # um Hilfe... Sage Danke." sequence one-for-one.
+    "frage": "FRAGE", "frag": "FRAGE",
+    "klettere": "KLETTERE", "klettern": "KLETTERE", "besteige": "KLETTERE",
+    "rudere": "RUDERE", "ruder": "RUDERE", "rudern": "RUDERE",
+    "gruesse": "GRUESSE", "grüße": "GRUESSE", "gruess": "GRUESSE", "grüß": "GRUESSE",
+    "bitte": "BITTE",
+    "danke": "DANKE",
     # SCHLAFEN - confirmed real verb (sub_10792 - see PHASE0_FINDINGS.md
     # UPDATE 50 / game.py's sleep()).
     "sleep": "SLEEP", "schlafe": "SLEEP", "schlaf": "SLEEP", "schlafen": "SLEEP",

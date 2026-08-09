@@ -79,12 +79,65 @@ from .parser import parse, parse_chain, Command, DIRECTION_WORDS
 from .characters import Character, DEFAULT_NARRATOR
 from . import levels
 from . import combat
+from . import pictures
 from .monster_stats import MonsterStats
-from .repl_input import prompt_with_default
+from .repl_input import prompt_with_default, init_repl_input
 
 DEFAULT_ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 
 DIRECTIONS = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"}
+
+# The real game's "F2" exit listing (PHASE0_FINDINGS.md UPDATE 61,
+# user-supplied real gameplay text): "Unmittelbare Ausgänge führen
+# <exits>." - default rule confirmed against FOUR real examples
+# (rooms 10, 11, 18, 2): "nach" precedes every direction word, always -
+#   room 11: "...nach Osten, nach Südosten, nach Süden und nach
+#             Westen." (Südosten, a compound direction, keeps "nach")
+#   room 18: "...nach Norden, nach Südwesten, nach Westen und nach
+#             Nordwesten." (Südwesten/Nordwesten - also compound -
+#             both keep "nach" too)
+#   room 2:  "...nach Norden, nach Osten, nach Westen und nach Oben."
+# All list exits in ascending slot order (0-7), matching this port's
+# own `Room.available_exits()` iteration order already.
+#
+# UPDATE 61 first read room 10's text as evidence that "nach" drops
+# before any compound direction - WRONG, corrected by UPDATE 66's two
+# further examples above, which keep "nach" before Südosten/Südwesten/
+# Nordwesten. Room 10's own confirmed text really does omit "nach"
+# before "Nordosten" specifically ("...nach Norden, Nordosten, nach
+# Osten..."), but nothing else does - a genuine one-off exception (this
+# port's best guess: something in the original's own text-assembly
+# quirked out ONLY for this one word), not a rule. Special-cased below
+# rather than generalized into one.
+EXIT_DIRECTION_WORDS = {
+    "N": "Norden", "NE": "Nordosten", "E": "Osten", "SE": "Südosten",
+    "S": "Süden", "SW": "Südwesten", "W": "Westen", "NW": "Nordwesten",
+}
+EXIT_NACH_OMITTED = {(10, "NE")}
+
+# UPDATE 66: slot 7 (the exit table's "NW" slot - see world.py's
+# DIRECTION_NAMES comment for the full history) is confirmed real
+# "Oben" for room 2 specifically (a staircase up to Smirga's room), but
+# confirmed real "Nordwesten" for room 18 (and, by reciprocity, every
+# other room using this same slot that hasn't been independently
+# checked) - the same raw exit-table slot means different things in
+# different rooms, distinguished (as far as this port can tell) only by
+# a different `msg_code` on the exit record itself (room 2: 3, room 18:
+# the generic 1 shared by every confirmed-"Nordwesten" slot-7 exit).
+# Deliberately narrow: only room 2's case is independently confirmed by
+# real text, so only `(2, "NW")` is overridden here - typing "nw" still
+# moves you there too (same underlying exit), and "oben"/"hinauf"/
+# "rauf" are just additional parser aliases for the same "NW" move
+# (see parser.py) - this dict only changes what the F2 listing PRINTS,
+# not how movement resolves.
+EXIT_LABEL_OVERRIDES = {(2, "NW"): "Oben"}
+
+
+def _exit_phrase(room_number: int, direction: str) -> str:
+    label = EXIT_LABEL_OVERRIDES.get((room_number, direction), EXIT_DIRECTION_WORDS[direction])
+    if (room_number, direction) in EXIT_NACH_OMITTED:
+        return label
+    return f"nach {label}"
 
 # Door-verb constants, all confirmed via `sub_EEC0`/funcs 7-10 - see the
 # `laas` analysis project's decompiled/seg005_batch5.md. Object identities
@@ -130,6 +183,107 @@ MERCHANTS = {
 FOROLL_OBJECT_CODE = 34
 FOROLL_ROOM = 3
 FOROLL_WEAPON_PRICE = 7
+
+# The farmer's harvest-help quest (PHASE0_FINDINGS.md UPDATE 68) -
+# found while tracing what raises/lowers Ansehen (user asked directly:
+# "can we figure out the reputation system?"). Fully confirmed via a
+# disassembly trace of the real code (flat 0x16887-0x16980 for the
+# help/reward path, flat 0x6a5f-0x6a99 for the storm timer):
+#   - Bauer (99, confirmed farmer, day-only per DAY_ROSTER) needs help
+#     bringing in the harvest at room 20 (Kornfeld) before a storm hits.
+#   - A per-turn counter advances once per turn spent in room 20 while
+#     the quest is still unresolved; at FARMER_QUEST_STORM_TURNS turns,
+#     the storm hits and the quest fails PERMANENTLY (see
+#     `_check_farmer_storm()`) - matches the walkthrough's own framing
+#     ("wenn Ihr ihm auf dem Feld helft") as a real race, not a
+#     standing offer.
+#   - Helping in time (`helfen()`) triggers a whole scripted farmhouse
+#     scene: +1 Ansehen, +2 Smirga Strength, +1 Aszhanti Strength, +1
+#     MAX hp to both party members (the same "won fight" pattern
+#     `attack()` already applies elsewhere), Hunger/Durst reset to full
+#     (the farmer feeds you), a farmhouse conversation that reacts to
+#     your CURRENT Ansehen tier (the exact same 4 thresholds as the
+#     status screen's own ladder - UPDATE 23), and a Schinken (ham)
+#     reward, object code 21 - confirmed via the disassembly's own
+#     "give object" call sitting directly after the reward text, not
+#     independently corroborated by a second source the way some other
+#     codes are.
+FARMER_CODE = 99
+FARMER_ROOM = 20
+FARMER_QUEST_STORM_TURNS = 6
+FARMER_QUEST_SCHINKEN_CODE = 21
+
+# The Tuatara bounty/diplomacy quest (PHASE0_FINDINGS.md UPDATE 69) -
+# the walkthrough's "1. Auftrag", found while chasing Phadraig's oar-
+# return Ansehen reward (UPDATE 67/68) - it turned out to gate on this
+# whole quest's own resolution, not just "did you give the oar back".
+# Confirmed via disassembly (flat 0xa79a-0xa7d3 for Phadraig's own
+# check; flat 0x12fa9-0x1300e for the Tuatara dialogue; flat 0x9154 for
+# the kill path) that BOTH endings satisfy it - the fishing village's
+# tavern offers 150 Gerfs to deal with a Tuatara (146, already sitting
+# at its own room by default) terrorizing their fishing grounds; you
+# can kill it in a real fight (it has real combat stats already) or
+# talk to it - it turns out to be intelligent and has never been
+# spoken to, only hunted - and negotiate on the fishermen's behalf.
+# Both endings pay the same 150-Gerf bounty (confirmed word-for-word:
+# both STORY messages 626/627 end "...um 150 Gerfs reicher").
+#
+# Confirmed real state progression (`word_b678`): 1 = quest accepted
+# (asked Phadraig), 2 = boat/oar obtained, 3 = encountered Tuatara
+# (arrived at the lake), 4 = killed it, 5 = successfully talked it into
+# helping. KNOWN SIMPLIFICATION: stages 1/2 are collapsed into a single
+# `frage()` interaction (accepting the quest and getting the oar happen
+# in one unbroken scripted scene in the real text too - message 566 -
+# so nothing is lost by not splitting it further), and this port only
+# tracks stage via `_tuatara_quest_stage` for 0/3/4/5 - "do you have
+# the Ruder" already does the job of gating stages 1-2's own actions.
+# The harpoon Phadraig hands over (message 566) has no confirmed object
+# code (not found in the object-description table, not price-matched
+# to anything) - modeled as flavor text only, not a trackable item.
+TUATARA_CODE = 146
+PHADRAIG_CODE = 147
+RUDER_CODE = 152
+TUATARA_TAVERN_ROOM = 35        # "Zum singenden Barben"
+TUATARA_BOATHOUSE_ROOM = 36     # "Bootsschuppen"
+TUATARA_LAKE_ROOMS = (37, 38, 39)  # confirmed zero-compass-exit "rudere"-only rowing states
+TUATARA_ENCOUNTER_ROOM = 39     # confirmed closest to Tuatara
+TUATARA_BOUNTY_GERFS = 150
+
+# Potidan's Mondscheinkraut fetch-quest (PHASE0_FINDINGS.md UPDATE 70,
+# another of UPDATE 67's 8 confirmed Ansehen sources, +2 at flat
+# `0x17398`). Potidan (243, room 27) offers to heal the party in
+# exchange for the Mondscheinkraut (moonlight herb, object 64 - object
+# identity confirmed the same way as Ruder/152 was: a `cmp si, 0x40`
+# check in Potidan's own topic dispatcher). Confirmed real state
+# machine (`word_b6e6`): 2 = quest known/offered, 3 = accepted/waiting
+# for the herb, 4 = turned in. KNOWN SIMPLIFICATION: this port collapses
+# 2/3 into one `_potidan_quest_stage` value (1) - the real dialogue's
+# extra accept/confirm step has no other observable game-state effect.
+# The herb itself is a monster loot-drop (killing the Skelett/244, the
+# confirmed room-28 night-only creature - see NIGHT_ROSTER, whose
+# arrival/departure messages 1553/1552 independently confirm the
+# identity) - the EXACT drop mechanism wasn't found in the disassembly
+# (unlike, say, Skeeve's confirmed GIB-based handoffs), so this port
+# grants it directly on kill, the same simplification already applied
+# to Tuatara's harpoon. The confirmed reward (message 1538): 100 Gerfs,
+# +2 Ansehen, and an offer to heal on the spot (message 1557's own
+# "erst müßt ihr mir einen Gefallen tun" - the favor - confirms the
+# healing IS the quest's motivation, not just a bonus) - this port
+# auto-accepts the heal (message 1515) rather than modeling a separate
+# yes/no prompt, since declining has no confirmed consequence.
+# Room 28 (the herb valley) has zero compass exits in the confirmed
+# room graph - room 47's own dead-end "N:999" edge-of-map sentinel
+# (previously assumed unused, room_text.py's own note) is the real
+# climb-in point, matching the walkthrough's "climb through the
+# passage" framing and room 28's own text ("im Westen der Durchgang
+# ... durch den wir hierher gefunden haben").
+POTIDAN_CODE = 243
+MONDSCHEINKRAUT_CODE = 64
+SKELETT_CODE = 244
+POTIDAN_ROOM = 27
+POTIDAN_PASSAGE_ROOM = 47       # mountain ridge/pass - the climb-in point
+POTIDAN_HERB_VALLEY_ROOM = 28   # zero-compass-exit, night-only Skelett
+POTIDAN_QUEST_GERFS = 100
 
 # Hyllok is a safe zone - no random ambush (see _check_ambush) ever
 # happens there, user-confirmed. Matches room_text.py's already-confirmed
@@ -206,6 +360,33 @@ NIGHT_ROSTER = {
     87: 23,
     162: 32,  # Oger (confirmed via FEBR, UPDATE 38 - room not independently confirmed)
     244: 28,
+}
+
+# The automatic room->picture table (PHASE0_FINDINGS.md UPDATE 72):
+# `word_ad62` (the pointer `sub_495a`'s room-lookup reads - see
+# pictures.py's own docstring for the manual F6/BILD picture viewer)
+# is confirmed to be WORLD's 13th and final section's start pointer,
+# via its own single write site (flat `0x384a`) sitting at the exact
+# end of the WORLD loader's cumulative section-pointer chain. WORLD's
+# real header format (traced directly from `sub_3777`'s fopen/fread
+# calls, correcting an earlier documented mis-read): a leading u16
+# total-blob-size, THEN 13 u16 section sizes (not 13 sizes from byte 0
+# as originally assumed) - extracting section 13 (84 bytes, offset 1118
+# in the 1202-byte blob) from the real WORLD asset file gives a clean,
+# perfectly-terminated (0xFF,0xFF) table of 42 (room, picture) byte
+# pairs. Cross-validated two independent ways: room 67 (the game's own
+# confirmed starting room, `word_b34e=0x43` in the main loop's own
+# init code) maps to picture 1 (P1 - the farmhouse scene already
+# checked against the user's screenshot), and rooms 104/108 (the
+# Tatzelwurm/Lindwurm dragon lairs, both already independently
+# confirmed via names.py) map to pictures 21/22 - both of which decode
+# to unmistakable dragon artwork.
+ROOM_PICTURE_TABLE = {
+    67: 1, 1: 2, 2: 2, 4: 3, 17: 4, 18: 4, 14: 4, 24: 5, 25: 5, 20: 6,
+    21: 7, 29: 8, 30: 8, 55: 8, 53: 8, 98: 9, 61: 10, 62: 10, 63: 10,
+    31: 11, 32: 11, 34: 12, 36: 12, 33: 12, 45: 13, 46: 13, 47: 13,
+    105: 14, 107: 14, 84: 15, 85: 15, 75: 16, 35: 17, 100: 18, 101: 18,
+    71: 19, 72: 19, 106: 20, 48: 20, 104: 21, 108: 22,
 }
 
 # SLEEP (SCHLAFEN) verb - confirmed room-by-room in an earlier analysis
@@ -361,6 +542,7 @@ MYGRA_GIVE_ACCEPT_MESSAGE = (
 
 class GameState:
     def __init__(self, assets_dir: Path = DEFAULT_ASSETS_DIR):
+        self.assets_dir = Path(assets_dir)
         self.story = Story.load(assets_dir)
         self.world = World.load(assets_dir)
         self.objects = ObjectTable.load(assets_dir)
@@ -442,6 +624,33 @@ class GameState:
         self.scarabaeus_charge: int = 0
         self._gas_trap_warned: bool = False
         self._scarabaeus_recharge_deadline: int | None = None
+        # The farmer's harvest-help quest (see FARMER_* constants,
+        # PHASE0_FINDINGS.md UPDATE 68): 0 = unresolved, 1 = succeeded,
+        # 2 = failed (storm already hit) - confirmed real state machine
+        # (`word_b66c`). `_farmer_storm_turns` is the confirmed per-turn
+        # countdown (`word_b66e`) that forces state 2 once it reaches
+        # `FARMER_QUEST_STORM_TURNS`.
+        self._farmer_quest_state: int = 0
+        self._farmer_storm_turns: int = 0
+        # The Tuatara bounty/diplomacy quest (see TUATARA_* constants,
+        # PHASE0_FINDINGS.md UPDATE 69): 0 = not yet encountered, 3 =
+        # arrived at the lake and encountered Tuatara, 4 = killed it,
+        # 5 = successfully talked it into helping - matches the real
+        # game's own `word_b678` values (1/2 are collapsed into the
+        # single `frage()` interaction, see that constant's docstring).
+        # `_tuatara_greeted` gates `bitte()` on `gruesse()` having
+        # already happened, matching the confirmed real dialogue order.
+        self._tuatara_quest_stage: int = 0
+        self._tuatara_greeted: bool = False
+        # Phadraig's raw default location (999) isn't a real room - he's
+        # never independently placed anywhere in the raw data, so this
+        # port places him at the tavern (see TUATARA_TAVERN_ROOM) where
+        # the confirmed quest-offer dialogue happens.
+        self._move_object(PHADRAIG_CODE, TUATARA_TAVERN_ROOM)
+        # Potidan's Mondscheinkraut quest (see POTIDAN_* constants,
+        # PHASE0_FINDINGS.md UPDATE 70): 0 = not yet asked, 1 = asked/
+        # offered (collapsed from the real game's 2/3), 2 = turned in.
+        self._potidan_quest_stage: int = 0
         # The character-sheet title-progression tracks from levels.py -
         # see PHASE0_FINDINGS.md UPDATE 23 (and its "Correction, same
         # session" addendum, which fixed two real bugs in this feature's
@@ -502,6 +711,17 @@ class GameState:
         self._combat_monster_code: int | None = None
         self._combat_monster_hp: int | None = None
         self._combat_awaiting: str | None = None
+        # BILD (F6/Entf picture viewer, see bild()) - set while awaiting
+        # the player's typed picture number, same bypass-normal-parsing
+        # pattern as `_combat_awaiting`.
+        self._awaiting_picture_number: bool = False
+        # The automatic per-room picture trigger (see ROOM_PICTURE_TABLE,
+        # PHASE0_FINDINGS.md UPDATE 72): 0 means "none shown yet",
+        # matching the real game's own `word_b736` starting at 0 -
+        # since no real picture number is ever 0, this correctly lets
+        # the very first picture-having room (including the starting
+        # room itself) fire immediately.
+        self._last_shown_picture: int = 0
         # Hunger (party-wide) / Durst (per character): the screenshot
         # confirms both start in their best/highest bracket ("Satt" /
         # "Kein Durst" for both), but only the qualitative state is
@@ -515,12 +735,47 @@ class GameState:
         self.aszhanti_durst: int = 100
         self.smirga_durst: int = 100
 
+        self._check_room_picture()
+
     # --- location tracking (mutable on top of world.py's static data) ---
 
     def object_location(self, code: int) -> int | None:
         if code in self._location_overrides:
             return self._location_overrides[code]
-        return self.world.object_location(code)
+        loc = self.world.object_location(code)
+        if loc is None or loc == LIMBO_CARRIED:
+            return loc
+        flag = self.world.flags[code] if code < len(self.world.flags) else None
+        if flag is not None and not flag.has_instance:
+            # CORRECTED TWICE OVER (UPDATE 59, then this pass): UPDATE
+            # 58 found a non-instance object's raw flags word CAN be a
+            # real room number - confirmed for Salami. UPDATE 59 found
+            # that's false for objects with a real merchant price
+            # (user-reported, with a screenshot: no Schild in room 10
+            # despite its raw value reading like one) - a shop item's
+            # not-yet-bought raw value is some other kind of reference.
+            # Checking further (user-reported again: no known pickable
+            # object in room 67 despite one now showing, object 38)
+            # found the problem is bigger than just priced items: doing
+            # this for EVERY non-instance code surfaces roughly ONE such
+            # "object" in nearly every one of the 109 rooms -
+            # overwhelmingly more consistent with some other general
+            # per-room engine structure (unidentified; possibly related
+            # to the same kind of generic per-room table already seen
+            # elsewhere in this project, e.g. WORLD's own per-room
+            # tables) than with ~100 forgotten takeable items,
+            # especially since real gameplay has only ever confirmed
+            # ONE of them as an actual pickup (Salami) and explicitly
+            # disproved another (Schild, despite being a real, named,
+            # priced item). So: only trust this raw "location" when the
+            # object is BOTH independently confirmed real in `names.py`
+            # AND has no merchant price (`item_stats.buy_price() == 0`)
+            # - currently just Salami/11 - everything else (unnamed
+            # filler objects, and named-but-priced shop items alike)
+            # stays unplaced rather than guessed at.
+            if code not in OBJECT_NAMES or self.item_stats.buy_price(code) > 0:
+                return None
+        return loc
 
     def _all_trackable_codes(self):
         """Every object code this port can report a location for: the
@@ -592,6 +847,8 @@ class GameState:
             "combat_monster_code": self._combat_monster_code,
             "combat_monster_hp": self._combat_monster_hp,
             "combat_awaiting": self._combat_awaiting,
+            "awaiting_picture_number": self._awaiting_picture_number,
+            "last_shown_picture": self._last_shown_picture,
             "room_impatience_turns": self._room_impatience_turns,
             "room_impatience_fired": {
                 str(k): sorted(v) for k, v in self._room_impatience_fired.items()
@@ -602,6 +859,11 @@ class GameState:
             "scarabaeus_charge": self.scarabaeus_charge,
             "gas_trap_warned": self._gas_trap_warned,
             "scarabaeus_recharge_deadline": self._scarabaeus_recharge_deadline,
+            "farmer_quest_state": self._farmer_quest_state,
+            "farmer_storm_turns": self._farmer_storm_turns,
+            "tuatara_quest_stage": self._tuatara_quest_stage,
+            "tuatara_greeted": self._tuatara_greeted,
+            "potidan_quest_stage": self._potidan_quest_stage,
         }
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")
         return f"Spiel gespeichert ({path})."
@@ -633,6 +895,8 @@ class GameState:
         self._combat_monster_code = data.get("combat_monster_code")
         self._combat_monster_hp = data.get("combat_monster_hp")
         self._combat_awaiting = data.get("combat_awaiting")
+        self._awaiting_picture_number = data.get("awaiting_picture_number", False)
+        self._last_shown_picture = data.get("last_shown_picture", 0)
         self._room_impatience_turns = {
             int(k): v for k, v in data.get("room_impatience_turns", {}).items()
         }
@@ -645,6 +909,11 @@ class GameState:
         self.scarabaeus_charge = data.get("scarabaeus_charge", 0)
         self._gas_trap_warned = data.get("gas_trap_warned", False)
         self._scarabaeus_recharge_deadline = data.get("scarabaeus_recharge_deadline")
+        self._farmer_quest_state = data.get("farmer_quest_state", 0)
+        self._farmer_storm_turns = data.get("farmer_storm_turns", 0)
+        self._tuatara_quest_stage = data.get("tuatara_quest_stage", 0)
+        self._tuatara_greeted = data.get("tuatara_greeted", False)
+        self._potidan_quest_stage = data.get("potidan_quest_stage", 0)
         return f"Spielstand geladen ({path})."
 
     # --- noun resolution ---
@@ -662,6 +931,31 @@ class GameState:
         return resolve_name(noun, candidate_codes)
 
     # --- verbs ---
+
+    def exits(self) -> str:
+        """The real game's "F2" exit listing - see EXIT_DIRECTION_WORDS'
+        docstring for the confirmed message template and join rule.
+        KNOWN GAP: room 2 (Smirgas Elternhaus) has a confirmed real
+        Westen exit that isn't in this port's room graph at all - its
+        raw exit-table slot reads `dest_room=0`, previously assumed to
+        always mean "no exit" (see world.py's `Exit.usable`), but that
+        assumption is now known to be wrong at least here. The true
+        destination isn't confirmed yet, so it's not added and won't
+        appear in this list until it is - not guessed at.
+        KNOWN SIMPLIFICATION: the join for exactly 2 exits isn't
+        independently confirmed by any real example (both confirmed
+        cases have 4 and 5) - this uses the same comma+"und" convention
+        already established for `_who_is_here_line()`, the natural
+        extrapolation of the n=1 case, not a wild guess. The zero-exits
+        message below is a PORT UTILITY, not confirmed real text (no
+        example of a genuinely exit-less room's F2 output exists yet -
+        room 28 is the one known candidate, a special-action-only room)."""
+        exits = self.world.room(self.current_room).available_exits()
+        if not exits:
+            return "Ich kann hier nirgendwo hingehen."
+        phrases = [_exit_phrase(self.current_room, d) for d in exits]
+        joined = phrases[0] if len(phrases) == 1 else ", ".join(phrases[:-1]) + " und " + phrases[-1]
+        return f"Unmittelbare Ausgänge führen {joined}."
 
     def look(self) -> str:
         room = self.world.room(self.current_room)
@@ -686,6 +980,15 @@ class GameState:
             # entirely rather than swapping in different wording.
             salami_sentence = self.story.message(184)
             text = text.replace(f" {salami_sentence}", "").replace(salami_sentence, "")
+        if text is not None and self.current_room == FARMER_ROOM and self._farmer_quest_state != 0:
+            # Confirmed via the disassembly (UPDATE 68): room 20's own
+            # standing text switches entirely - message 345 once the
+            # harvest-help quest succeeds ("...an einem geernteten
+            # Kornfeld..."), message 346 once the storm destroys the
+            # crop instead ("...zerschlagenen Kornfeld...") - unlike
+            # the Salami case, this replaces the WHOLE text, not one
+            # sentence within it.
+            text = self.story.message(345 if self._farmer_quest_state == 1 else 346)
         if text is not None:
             lines.append(text)
         else:
@@ -790,11 +1093,45 @@ class GameState:
         self._move_object(code, self.current_room)
         return "Abgelegt."
 
+    def _worn_armor_line(self, armor_code: int | None, equipped_msg_index: int, default_msg_index: int) -> str:
+        """One line of the confirmed real "F4 Inventory" screen (UPDATE
+        63) reporting a character's worn armor - STORY message
+        `default_msg_index` ("Smirga/Aszhanti trägt normale Kleidung.")
+        when nothing is equipped, confirmed exactly via a user-supplied
+        screenshot of a fresh game. When real armor IS equipped, uses
+        the confirmed companion message ("Smirga/Aszhanti hat %s %s
+        an.") with the item's name substituted - the exact indefinite
+        article for each of the 3 confirmed armor codes is ordinary
+        German grammar (Kettenhemd/Lederwams neuter -> "ein",
+        Echsenpanzer masculine -> "einen"), NOT independently verified
+        against a screenshot the way the "normale Kleidung" default is."""
+        if armor_code is None:
+            return self.story.message(default_msg_index)
+        article = self.ARMOR_WEAR_ARTICLE.get(armor_code, "ein")
+        name = self._object_display_name(armor_code)
+        return self.story.message(equipped_msg_index) % (article, name)
+
     def inventory(self) -> str:
+        """Confirmed real "F4 Inventory" screen (UPDATE 63, user-
+        supplied screenshot): STORY message 121 ("Leider haben wir
+        nichts.") when empty - exact match - followed by a blank line
+        and each character's worn-armor line (see
+        `_worn_armor_line()`). KNOWN SIMPLIFICATION: the non-empty case
+        uses confirmed message 120 ("Wir haben ") as a prefix (also
+        real, found right next to message 121), but the multi-item join
+        itself isn't independently confirmed by any real example - uses
+        the same comma+"und" convention already established elsewhere
+        in this port (`_who_is_here_line()`), not a wild guess."""
         carried = self.objects_carried()
         if not carried:
-            return "Ich trage nichts bei mir."
-        return "Ich trage: " + ", ".join(self._object_display_name(o) for o in carried)
+            items_line = self.story.message(121)
+        else:
+            names = [self._object_display_name(o) for o in carried]
+            joined = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " und " + names[-1]
+            items_line = f"{self.story.message(120)}{joined}."
+        smirga_line = self._worn_armor_line(self.smirga_armor, 1878, 1884)
+        aszhanti_line = self._worn_armor_line(self.aszhanti_armor, 1879, 1885)
+        return f"{items_line}\n\n{smirga_line}\n{aszhanti_line}"
 
     # --- SLEEP (SCHLAFEN) - confirmed real room-by-room mechanic, see
     # SLEEP_* constants above and PHASE0_FINDINGS.md UPDATE 50 ---
@@ -855,15 +1192,105 @@ class GameState:
     # UPDATE 23; matches the original's own "Zustandsübersicht" menu item,
     # STORY message 1456) ---
 
+    def spells(self) -> str:
+        """Confirmed real "F5 Zaubersprüche" screen (UPDATE 64, user-
+        supplied screenshot): STORY message 1460 (title) + message 322
+        (header, keeping its own confirmed embedded line break between
+        the two sentences) + message 655 (the confirmed "can't cast
+        anything yet" fallback) - exact match to the screenshot.
+
+        KNOWN GAP: the screen's OTHER state - an actual list of known
+        spell names once Aszhanti's astral level rises above
+        "Scharlatan" - has never been seen in any screenshot and isn't
+        modeled here. The 5 real spell names (LEVI/KUBL/FEBR/UNSI/TOPA,
+        already confirmed via combat.py's `SPELL_PROMPT`) exist, but
+        which ones unlock at which astral level isn't confirmed, so
+        nothing is guessed at - this always shows the confirmed
+        "nothing yet" text regardless of `aszhanti_astral` until that
+        gap is filled with real evidence."""
+        lines = [
+            self.story.message(1460),
+            "",
+            self.story.message(322).rstrip("\n"),
+            "",
+            self.story.message(655),
+        ]
+        return "\n".join(lines)
+
+    def bild(self, noun: str | None) -> str:
+        """BILD (picture) - the real game's "F6"/Entf illustration
+        viewer, confirmed via its "What Picture ?" debug prompt (flat
+        `0x4b11` - PHASE0_FINDINGS.md UPDATE 71): types a number 1-22
+        and shows the matching LAASPIC/Pn file, decoded fresh from the
+        original compressed file every time (see pictures.py). The real
+        prompt string was in English ("What Picture ? ", clearly a
+        leftover dev/debug string never translated for players, unlike
+        every other player-facing string in this game) - adapted to
+        German here for consistency; "Illegale Bild Nr.!" for an
+        out-of-range number IS the real confirmed text.
+
+        KNOWN GAP: the real game ALSO shows illustrations automatically
+        per-room (a separate mechanism, `word_ad62`'s room->picture
+        table) - that table is loaded at runtime from WORLD and wasn't
+        traced, so only this manual picker is ported, not the automatic
+        one."""
+        if noun is None:
+            self._awaiting_picture_number = True
+            return "Welches Bild? (1-22)"
+        return self._show_picture_number(noun)
+
+    def _show_picture_number(self, raw: str) -> str:
+        text = raw.strip()
+        if not text.isdigit() or not 1 <= int(text) <= pictures.PICTURE_COUNT:
+            self._awaiting_picture_number = True
+            return "Illegale Bild Nr.!"
+        self._awaiting_picture_number = False
+        pictures.show_picture(self.assets_dir, int(text))
+        return f"[Bild {text}]"
+
+    def _check_room_picture(self) -> str | None:
+        """Confirmed real automatic trigger (flat `0x7e3c`/`0x7e79`,
+        PHASE0_FINDINGS.md UPDATE 72): the main loop calls this every
+        single turn, not just on movement - but it's a no-op unless the
+        current room's picture (ROOM_PICTURE_TABLE) differs from the
+        last one shown, so in practice it only fires once per distinct
+        picture-having room actually visited (matching the confirmed
+        real `word_b736` "last shown" tracker). Called once at
+        `GameState.__init__` too, matching the real main loop calling
+        it as part of its own startup before any player command - the
+        confirmed real starting room (67) has a picture, so the real
+        game shows one immediately, unprompted, before you type
+        anything."""
+        picture = ROOM_PICTURE_TABLE.get(self.current_room)
+        if picture is None or picture == self._last_shown_picture:
+            return None
+        self._last_shown_picture = picture
+        pictures.show_picture(self.assets_dir, picture)
+        return f"[Bild {picture}]"
+
     def status(self) -> str:
         """The real "Zustandsübersicht" screen, same line order as the
         original (confirmed via a real DOSBox screenshot,
         `Status_anfang.png` - see PHASE0_FINDINGS.md UPDATE 23):
         Gesundheit, Stärke, Ansehen (party-wide), Astral, Hunger
         (party-wide), Durst - Aszhanti's column first, Smirga's second,
-        matching the original's own layout."""
+        matching the original's own layout.
+
+        Title line and column-header separator added (UPDATE 62,
+        user-supplied screenshot of the real "F3" shortcut) - STORY
+        message 1456 ("Zustandsübersicht.") is real, confirmed text
+        already referenced above but never actually printed; every
+        other line below was already an exact match to the screenshot's
+        values. The dash separator's exact length isn't independently
+        confirmed byte-for-byte from a screenshot - it's set to match
+        the header row's own width, a reasonable visual default rather
+        than a guessed different length."""
+        header = "                    Aszhanti          Smirga"
         lines = [
-            "                    Aszhanti          Smirga",
+            self.story.message(1456),
+            "",
+            header,
+            "-" * len(header),
             f"Gesundheit : {self.aszhanti_health:>18} {self.smirga_health:>17}",
             f"Stärke     : {levels.strength_title(self.aszhanti_strength):>18} "
             f"{levels.strength_title(self.smirga_strength):>17}",
@@ -968,6 +1395,14 @@ class GameState:
     # --- equip (ANLEGEN - real armor-equip mechanic, confirmed via
     # sub_133BE - see PHASE0_FINDINGS.md UPDATE 23's follow-up) ---
 
+    # Indefinite article for each of the 3 confirmed armor codes (see
+    # combat.ARMOR_CLASS), used by inventory()'s worn-armor line
+    # (STORY message 1878/1879, "hat %s %s an."). Ordinary German
+    # grammar (Kettenhemd/Lederwams are neuter -> "ein", Echsenpanzer is
+    # masculine -> "einen") - NOT independently verified against a
+    # screenshot the way the rest of UPDATE 63 is.
+    ARMOR_WEAR_ARTICLE = {264: "ein", 196: "einen", 52: "ein"}
+
     def equip(self, noun: str | None) -> str:
         """Sets `aszhanti_armor`/`smirga_armor` (combat.py's
         ARMOR_CLASS - Lederwams/264, Echsenpanzer/196, Kettenhemd/52,
@@ -1007,10 +1442,12 @@ class GameState:
         """GIB <item> <recipient> - confirmed real verb (see
         reference/walkthrough_de.txt: "Den Skarabäus gibt man in Hyllok
         Mygra und wartet einen Tag, bis er repariert ist." -
-        PHASE0_FINDINGS.md UPDATE 45). Narrow and purpose-built for the
-        one confirmed use (handing the depleted Skarabäus to Mygra for
-        recharging) - not a general give-to-NPC system; anything else
-        is politely refused rather than silently accepted."""
+        PHASE0_FINDINGS.md UPDATE 45). Narrow and purpose-built for its
+        confirmed uses (handing the depleted Skarabäus to Mygra for
+        recharging; returning Phadraig's oar once the Tuatara quest is
+        resolved, UPDATE 69) - not a general give-to-NPC system;
+        anything else is politely refused rather than silently
+        accepted."""
         if not raw or len(raw.split()) < 2:
             return "Wem soll ich das geben?"
         *item_words, recipient_word = raw.split()
@@ -1025,8 +1462,40 @@ class GameState:
             self.scarabaeus_charge = 1
             self._scarabaeus_recharge_deadline = self._turn_counter + SCARABAEUS_RECHARGE_TURNS
             return MYGRA_GIVE_ACCEPT_MESSAGE
+        if recipient_code == PHADRAIG_CODE and item_code == RUDER_CODE:
+            if self._tuatara_quest_stage <= 3:
+                return self.story.message(2309)
+            self._move_object(RUDER_CODE, LIMBO_REMOVED)
+            self.ansehen += 1
+            return self.story.message(1958)
+        if recipient_code == POTIDAN_CODE:
+            return self._give_potidan(item_code)
         recipient_name = self._object_display_name(recipient_code)
         return f"{recipient_name} kann damit nichts anfangen."
+
+    def _give_potidan(self, item_code: int) -> str:
+        """Confirmed real reward (flat 0x17398, PHASE0_FINDINGS.md
+        UPDATE 70): the Mondscheinkraut pays 100 Gerfs, +2 Ansehen, and
+        a full heal (message 1538's own "Soll ich euch sofort heilen?"
+        offer - auto-accepted here, see POTIDAN_* constants' docstring
+        for why). Confirmed real brush-off (message 1555) for handing
+        him anything else once the quest is known."""
+        if item_code != MONDSCHEINKRAUT_CODE:
+            if self._potidan_quest_stage == 0:
+                recipient_name = self._object_display_name(POTIDAN_CODE)
+                return f"{recipient_name} kann damit nichts anfangen."
+            return self.story.message(1555)
+        if self._potidan_quest_stage == 0:
+            return "Das interessiert Potidan jetzt nicht."
+        if self._potidan_quest_stage >= 2:
+            return self.story.message(1540)
+        self._move_object(MONDSCHEINKRAUT_CODE, LIMBO_REMOVED)
+        self._potidan_quest_stage = 2
+        self.money += POTIDAN_QUEST_GERFS
+        self.ansehen += 2
+        self.aszhanti_health = self.aszhanti_max_health
+        self.smirga_health = self.smirga_max_health
+        return "\n".join([self.story.message(1538), self.story.message(1515)])
 
     def _check_scarabaeus_recharge(self) -> str | None:
         """Completes Mygra's recharge once the confirmed 10-turn
@@ -1045,6 +1514,221 @@ class GameState:
         self._scarabaeus_recharge_deadline = None
         self._move_object(SCARABAEUS_CODE, LIMBO_CARRIED)
         return "Mygra gibt dir den reparierten Scarabäus zurück. 'Er ist wieder wie neu!'"
+
+    def helfen(self, noun: str | None) -> str:
+        """HELFEN (help) - a PORT UTILITY verb name (the real typed word
+        was never confirmed, same caveat as ATTACK/EQUIP elsewhere in
+        this file), built for the one confirmed real interaction it
+        unlocks: helping the farmer (Bauer, `FARMER_CODE`) bring in the
+        harvest at room 20 before a storm destroys it (see FARMER_*
+        constants and `_check_farmer_storm()` - PHASE0_FINDINGS.md
+        UPDATE 68)."""
+        if not noun:
+            return "Wem soll ich helfen?"
+        code = self._resolve_noun(noun, self.objects_in_room(self.current_room))
+        if code != FARMER_CODE or self.object_location(FARMER_CODE) != self.current_room:
+            return "Das sehe ich hier nicht."
+        if self._farmer_quest_state == 1:
+            return self.story.message(358)
+        if self._farmer_quest_state == 2:
+            return self.story.message(359)
+        self._farmer_quest_state = 1
+        self._farmer_storm_turns = 0
+        self.ansehen += 1
+        self.smirga_strength += 2
+        self.aszhanti_strength += 1
+        self.aszhanti_max_health += 1
+        self.smirga_max_health += 1
+        self.hunger = 150
+        self.aszhanti_durst = 100
+        self.smirga_durst = 100
+        self._move_object(FARMER_QUEST_SCHINKEN_CODE, LIMBO_CARRIED)
+        lines = [self.story.message(349)]
+        lines.append(self.story.message(350 if self.narrator == Character.SMIRGA else 351))
+        lines.append(self.story.message(352))
+        if self.ansehen <= 2:
+            lines.append(self.story.message(353))
+        elif self.ansehen <= 4:
+            lines.append(self.story.message(354))
+        elif self.ansehen <= 6:
+            lines.append(self.story.message(355))
+        else:
+            lines.append(self.story.message(356))
+        lines.append(self.story.message(357))
+        return "\n".join(lines)
+
+    def _check_farmer_storm(self) -> str | None:
+        """Confirmed real timed event (flat 0x6a61 - see FARMER_*
+        constants' docstring, PHASE0_FINDINGS.md UPDATE 68): a per-turn
+        counter advances while the player stays in room 20 with the
+        harvest-help quest still unresolved - at
+        `FARMER_QUEST_STORM_TURNS` turns, a storm destroys the crop and
+        the quest fails PERMANENTLY. Matches the same per-room ambient-
+        dispatcher mechanism `ROOM_IMPATIENCE_EVENTS` already ports for
+        Foroll/Oerli (this event just isn't repeating/multi-stage)."""
+        if self.current_room != FARMER_ROOM or self._farmer_quest_state != 0:
+            return None
+        self._farmer_storm_turns += 1
+        if self._farmer_storm_turns < FARMER_QUEST_STORM_TURNS:
+            return None
+        self._farmer_storm_turns = 0
+        self._farmer_quest_state = 2
+        return self.story.message(347)
+
+    # --- the Tuatara bounty/diplomacy quest (see TUATARA_* constants,
+    # PHASE0_FINDINGS.md UPDATE 69) ---
+
+    def frage(self, noun: str | None) -> str:
+        """FRAGE (ask) - a PORT UTILITY verb name (the real typed word
+        wasn't confirmed, same caveat as ATTACK/HELFEN elsewhere in
+        this file), collapsing the walkthrough's "nach Auftrag fragen"
+        + "nach Ruder fragen" into one interaction at the tavern (see
+        TUATARA_* constants' docstring for why that's a safe
+        simplification, not a guess)."""
+        if not noun:
+            return "Wonach soll ich fragen?"
+        code = self._resolve_noun(noun, self.objects_in_room(self.current_room))
+        if code == POTIDAN_CODE and self.object_location(POTIDAN_CODE) == self.current_room:
+            return self._frage_potidan()
+        if code != PHADRAIG_CODE or self.object_location(PHADRAIG_CODE) != self.current_room:
+            return "Das sehe ich hier nicht."
+        if self.current_room != TUATARA_TAVERN_ROOM:
+            return "Darüber möchte ich hier nicht sprechen."
+        if RUDER_CODE in self.objects_carried() or self._tuatara_quest_stage > 0:
+            return self.story.message(2309)
+        self._move_object(RUDER_CODE, LIMBO_CARRIED)
+        return "\n".join([
+            self.story.message(556),
+            self.story.message(557),
+            self.story.message(566),
+        ])
+
+    def _frage_potidan(self) -> str:
+        """Confirmed real dialogue (flat 0x1731d-0x17344, PHASE0_FINDINGS.md
+        UPDATE 70): asking Potidan for the first time reveals the
+        Mondscheinkraut quest (message 1516); asking again while it's
+        still outstanding just repeats the "bring me the herb" line
+        (message 1556); asking after it's done gets the confirmed
+        "no other job for you" brush-off (message 1540) rather than
+        re-triggering anything."""
+        if self._potidan_quest_stage == 0:
+            self._potidan_quest_stage = 1
+            return self.story.message(1516)
+        if self._potidan_quest_stage == 1:
+            return self.story.message(1556)
+        return self.story.message(1540)
+
+    def klettere(self, noun: str | None) -> str:
+        """KLETTERE (climb) - a PORT UTILITY verb name, matching the
+        walkthrough's "Ins Boot klettern"/"Klettere durch Durchgang".
+        Handles two confirmed special-action entry points: the Tuatara
+        boat (room 36, requires the Ruder) and Potidan's herb valley
+        (room 47's own dead-end "N:999" sentinel, PHASE0_FINDINGS.md
+        UPDATE 70 - room 28 itself has zero compass exits in the
+        confirmed room graph, so "klettere" is the only way in or out)."""
+        if self.current_room == TUATARA_BOATHOUSE_ROOM:
+            if RUDER_CODE not in self.objects_carried():
+                return "Ohne Ruder nützt mir das Boot nichts."
+            self.current_room = TUATARA_LAKE_ROOMS[0]
+            return self.look()
+        if self.current_room == POTIDAN_PASSAGE_ROOM:
+            self.current_room = POTIDAN_HERB_VALLEY_ROOM
+            return self.look()
+        if self.current_room == POTIDAN_HERB_VALLEY_ROOM:
+            self.current_room = POTIDAN_PASSAGE_ROOM
+            return self.look()
+        return "Das kann ich hier nicht."
+
+    def rudere(self, noun: str | None) -> str:
+        """RUDERE (row) - confirmed real verb (room_text.py's own
+        comment on rooms 37-39: "zero-compass-exit special-action rooms
+        - entered/left via a 'rudere'/row verb"). Forward rowing steps
+        through `TUATARA_LAKE_ROOMS` one at a time; "rudere zurück"
+        reverses. Arriving at `TUATARA_ENCOUNTER_ROOM` for the first
+        time triggers the confirmed Tuatara encounter (messages 602/
+        606). KNOWN SIMPLIFICATION: the real "dreimal rudern" timing
+        (exactly which row triggers the surfacing) wasn't precisely
+        pinned down - this triggers it on first arrival at the
+        confirmed-closest room, the natural reading of "closest to the
+        Tuatara" from room_text.py's own note."""
+        if self.current_room not in TUATARA_LAKE_ROOMS and self.current_room != TUATARA_BOATHOUSE_ROOM:
+            return "Ich bin doch gar nicht im Boot!"
+        going_back = noun is not None and noun.strip().lower() in ("zurueck", "zurück")
+        if going_back:
+            if self.current_room == TUATARA_BOATHOUSE_ROOM:
+                return "Ich bin doch schon am Ufer."
+            idx = TUATARA_LAKE_ROOMS.index(self.current_room)
+            self.current_room = TUATARA_LAKE_ROOMS[idx - 1] if idx > 0 else TUATARA_BOATHOUSE_ROOM
+            if self.current_room == TUATARA_BOATHOUSE_ROOM:
+                return self._resolve_tuatara_quest_return()
+            return self.look()
+        if self.current_room == TUATARA_BOATHOUSE_ROOM:
+            return "Ich muss doch erst ins Boot steigen."
+        idx = TUATARA_LAKE_ROOMS.index(self.current_room)
+        if idx == len(TUATARA_LAKE_ROOMS) - 1:
+            return self.look()
+        self.current_room = TUATARA_LAKE_ROOMS[idx + 1]
+        result = self.look()
+        if self.current_room == TUATARA_ENCOUNTER_ROOM and self._tuatara_quest_stage == 0:
+            self._tuatara_quest_stage = 3
+            result = f"{result}\n{self.story.message(602)}"
+        return result
+
+    def _resolve_tuatara_quest_return(self) -> str:
+        """Confirmed real outcome once you row back to the boathouse:
+        a celebration (message 626 for the combat ending, 627 for the
+        diplomacy one) and the 150-Gerf bounty if the quest was
+        resolved - message 625 (an angry refusal, the Ruder confiscated
+        outright) if you row back having done neither."""
+        if self._tuatara_quest_stage >= 4:
+            self.money += TUATARA_BOUNTY_GERFS
+            msg = 626 if self._tuatara_quest_stage == 4 else 627
+            return self.story.message(msg)
+        self._move_object(RUDER_CODE, LIMBO_REMOVED)
+        return self.story.message(625)
+
+    def gruesse(self, noun: str | None) -> str:
+        """GRÜSSE (greet) - a PORT UTILITY verb name matching the
+        walkthrough's own "Grüße Tuatara" step exactly. Triggers the
+        confirmed reveal (message 612: the Tuatara has never been
+        spoken to, only hunted) - required before `bitte()` can
+        succeed, matching the real dialogue's confirmed order."""
+        if noun is None or self._resolve_noun(noun, self.objects_in_room(self.current_room)) != TUATARA_CODE:
+            return "Das sehe ich hier nicht."
+        self._tuatara_greeted = True
+        return self.story.message(612)
+
+    def bitte(self, noun: str | None) -> str:
+        """BITTE (ask/request) - a PORT UTILITY verb name matching the
+        walkthrough's "Bitte Tuatara um Hilfe für die Fischer" step.
+        Confirmed real precondition (flat 0x12fcd/0x12ff6): asking
+        before greeting gets the confirmed "I don't know what you're
+        getting at" refusal (message 620); asking after greeting
+        succeeds (message 621) and satisfies Phadraig's oar-return
+        condition just as surely as killing Tuatara does."""
+        if noun is None or self._resolve_noun(noun, self.objects_in_room(self.current_room)) != TUATARA_CODE:
+            return "Das sehe ich hier nicht."
+        if not self._tuatara_greeted:
+            return self.story.message(620)
+        if self._tuatara_quest_stage < 4:
+            self._tuatara_quest_stage = 5
+        return self.story.message(621)
+
+    def danke(self, noun: str | None) -> str:
+        """DANKE (thank) - a PORT UTILITY verb name matching the
+        walkthrough's closing "Sage Danke" step exactly (an object-less
+        phrase, unlike "Grüße Tuatara"/"Bitte Tuatara..." - so a bare
+        "danke" falls back to Tuatara if it's present, rather than
+        requiring "danke tuatara"). Pure flavor (message 622) - the
+        mechanical reward is already confirmed to land on `bitte()`'s
+        own success, not this closing courtesy."""
+        if noun is None:
+            target = TUATARA_CODE if TUATARA_CODE in self.objects_in_room(self.current_room) else None
+        else:
+            target = self._resolve_noun(noun, self.objects_in_room(self.current_room))
+        if target == TUATARA_CODE:
+            return self.story.message(622)
+        return "Wofür denn?"
 
     # --- combat: a stateful, PROMPT-DRIVEN flow matching the real game
     # exactly - ambush or a typed attack starts a fight, which then
@@ -1197,10 +1881,14 @@ class GameState:
             self._combat_awaiting = None
             self.running = False
 
-    def _apply_kill(self, instance_idx: int) -> None:
+    def _apply_kill(self, instance_idx: int) -> str | None:
         """Confirmed leveling-on-kill (UPDATE 22/23), shared by both
         melee and spell kills - applies regardless of which damage
-        source landed the final blow."""
+        source landed the final blow. Returns an extra line of text
+        for special, quest-specific kills (Tuatara - see TUATARA_*
+        constants, PHASE0_FINDINGS.md UPDATE 69; the Skelett - see
+        POTIDAN_* constants, UPDATE 70) - None otherwise."""
+        killed_code = self._combat_monster_code
         self.aszhanti_strength += 1
         self.smirga_strength += self.monster_stats.strength_reward(instance_idx)
         self.aszhanti_max_health += 1
@@ -1208,6 +1896,16 @@ class GameState:
         self._combat_monster_code = None
         self._combat_monster_hp = None
         self._combat_awaiting = None
+        if killed_code == TUATARA_CODE:
+            self._tuatara_quest_stage = max(self._tuatara_quest_stage, 4)
+            return self.story.message(611)
+        if killed_code == SKELETT_CODE:
+            self._move_object(MONDSCHEINKRAUT_CODE, LIMBO_CARRIED)
+            return (
+                "Zwischen den verstreuten Knochen entdecke ich das gesuchte "
+                "Mondscheinkraut und nehme es an mich."
+            )
+        return None
 
     def _resolve_combat_round(self, spell_choice: str | None = None, rng=random) -> str:
         """The actual round math - melee (`combat.resolve_round()`)
@@ -1264,7 +1962,9 @@ class GameState:
 
         if result.monster_killed:
             lines.append(f"Sofort bricht {name} leblos zusammen. Das Monster ist besiegt!")
-            self._apply_kill(instance_idx)
+            extra = self._apply_kill(instance_idx)
+            if extra:
+                lines.append(extra)
             return "\n".join(lines)
 
         self._check_player_death(lines)
@@ -1290,7 +1990,9 @@ class GameState:
             self._combat_monster_hp = levi.monster_hp_after
             if levi.monster_killed:
                 lines.append(f"Sofort bricht {name} leblos zusammen. Das Monster ist besiegt!")
-                self._apply_kill(instance_idx)
+                extra = self._apply_kill(instance_idx)
+                if extra:
+                    lines.append(extra)
         elif spell_choice == "kubl":
             kubl = combat.resolve_kubl(
                 monster_hp_before=self._combat_monster_hp,
@@ -1308,7 +2010,9 @@ class GameState:
             self._combat_monster_hp = kubl.monster_hp_after
             if kubl.monster_killed:
                 lines.append(f"Sofort bricht {name} leblos zusammen. Das Monster ist besiegt!")
-                self._apply_kill(instance_idx)
+                extra = self._apply_kill(instance_idx)
+                if extra:
+                    lines.append(extra)
         elif spell_choice == "unsi":
             unsi = combat.resolve_unsi(aszhanti_astral=self.aszhanti_astral, rng=rng)
             if not unsi.cast_succeeded:
@@ -1344,7 +2048,9 @@ class GameState:
             self._combat_monster_hp = febr.monster_hp_after
             if febr.monster_killed:
                 lines.append(f"Sofort bricht {name} leblos zusammen. Das Monster ist besiegt!")
-                self._apply_kill(instance_idx)
+                extra = self._apply_kill(instance_idx)
+                if extra:
+                    lines.append(extra)
 
         return "\n".join(lines)
 
@@ -1552,6 +2258,7 @@ class GameState:
     HELP_TEXT = (
         "Bewegung: n/s/e/w/ne/se/sw/nw (oder 'gehe norden' usw.)\n"
         "schau                          - Raum ansehen\n"
+        "exits / ausgänge               - Ausgänge auflisten\n"
         "untersuche <name-oder-#code>   - Objekt untersuchen\n"
         "nimm <name-oder-#code>         - Objekt aufnehmen\n"
         "lege <name-oder-#code>         - Objekt ablegen\n"
@@ -1560,8 +2267,10 @@ class GameState:
         "verkaufe <name-oder-#code>     - Einem Händler etwas verkaufen\n"
         "anlege <name-oder-#code>       - Rüstung anlegen (aktueller Erzähler)\n"
         "gib <name-oder-#code> <empfänger> - Gegenstand übergeben\n"
+        "hilf <name-oder-#code>         - jemandem helfen\n"
         "schlafe / übernachte           - schlafen (nur nachts möglich)\n"
         "zustand                        - Zustandsübersicht (Stärke/Astral/Ansehen)\n"
+        "zaubersprüche                  - bekannte Zaubersprüche auflisten\n"
         "attackiere <name-oder-#code>   - Angriff (Kampfrunde)\n"
         "fliehen                        - aus dem Kampf fliehen\n"
         "öffne <richtung>               - Tür öffnen\n"
@@ -1584,6 +2293,8 @@ class GameState:
             return self.go(command.verb)
         if command.verb == "LOOK":
             return self.look()
+        if command.verb == "EXITS":
+            return self.exits()
         if command.verb == "INVENTORY":
             return self.inventory()
         if command.verb == "EXAMINE":
@@ -1610,6 +2321,10 @@ class GameState:
             return "Wohin?"
         if command.verb == "STATUS":
             return self.status()
+        if command.verb == "SPELLS":
+            return self.spells()
+        if command.verb == "BILD":
+            return self.bild(command.noun)
         if command.verb == "ATTACK":
             return self.attack(command.noun)
         if command.verb == "FLEE":
@@ -1618,6 +2333,20 @@ class GameState:
             return self.equip(command.noun)
         if command.verb == "GIVE":
             return self.give(command.noun)
+        if command.verb == "HELFEN":
+            return self.helfen(command.noun)
+        if command.verb == "FRAGE":
+            return self.frage(command.noun)
+        if command.verb == "KLETTERE":
+            return self.klettere(command.noun)
+        if command.verb == "RUDERE":
+            return self.rudere(command.noun)
+        if command.verb == "GRUESSE":
+            return self.gruesse(command.noun)
+        if command.verb == "BITTE":
+            return self.bitte(command.noun)
+        if command.verb == "DANKE":
+            return self.danke(command.noun)
         if command.verb == "SLEEP":
             return self.sleep()
         if command.verb == "BUY":
@@ -1784,6 +2513,22 @@ class GameState:
                 self._check_scarabaeus_recharge(),
                 self._check_fanatic_ambush(),
                 self._check_gas_trap(),
+                self._check_farmer_storm(),
+                self._check_room_picture(),
+            ):
+                if tick:
+                    results.append(tick)
+            return results
+        if self._awaiting_picture_number:
+            results = [self._show_picture_number(raw)]
+            for tick in (
+                self._advance_clock(),
+                self._advance_room_events(),
+                self._check_scarabaeus_recharge(),
+                self._check_fanatic_ambush(),
+                self._check_gas_trap(),
+                self._check_farmer_storm(),
+                self._check_room_picture(),
             ):
                 if tick:
                     results.append(tick)
@@ -1799,6 +2544,8 @@ class GameState:
                 self._check_scarabaeus_recharge(),
                 self._check_fanatic_ambush(),
                 self._check_gas_trap(),
+                self._check_farmer_storm(),
+                self._check_room_picture(),
             ):
                 if tick:
                     results.append(tick)
@@ -1840,7 +2587,7 @@ def repl(assets_dir: Path = DEFAULT_ASSETS_DIR):
         awaiting = state._combat_awaiting
         default = _combat_prompt_default(awaiting, last_weapon_answer, last_spell_answer)
         try:
-            raw = prompt_with_default("\n> ", default).strip()
+            raw = prompt_with_default("> ", default).strip()
         except EOFError:
             break
         if not raw:
@@ -1854,4 +2601,5 @@ def repl(assets_dir: Path = DEFAULT_ASSETS_DIR):
 
 
 if __name__ == "__main__":
+    init_repl_input()
     repl()

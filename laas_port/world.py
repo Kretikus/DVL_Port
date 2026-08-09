@@ -68,6 +68,38 @@ FLAG_COUNT = 250
 # An earlier placeholder guess (N,S,E,W,NE,SE,SW,NW - compass-then-
 # diagonals) was WRONG; this clockwise ordering is the one that makes all
 # 4 independently-confirmed slots (0, 2, 5, 6) match simultaneously.
+#
+# CORRECTED, then CORRECTED BACK (PHASE0_FINDINGS.md UPDATE 61, then
+# UPDATE 66): slot 7 was never actually one of the 4 independently-
+# confirmed slots above - "NW" for it was pure extrapolation of the
+# clockwise pattern, same as slot 1 (NE)/slot 3 (SE)/slot 4 (S), never
+# independently checked. UPDATE 61 found a real counter-example (room
+# 2's slot 7 leads to room 7, "Smirgas Zimmer... unter dem Dach",
+# confirmed real "F2 exits" text: "...und nach Oben.", not
+# "Nordwesten") and relabeled slot 7 to "OBEN" GLOBALLY on the strength
+# of that one case - the exact same kind of premature over-
+# generalization the original "NW" guess was guilty of, just committed
+# a second time while fixing the first.
+#
+# UPDATE 66 found the correction was wrong: room 18's slot 7 (the exact
+# same slot index) is confirmed real "Nordwesten" via a second user
+# screenshot ("...nach Norden, nach Südwesten, nach Westen und nach
+# Nordwesten.") - independently reconfirmed by exit-graph reciprocity
+# (room 11's real SE exit leads to 18; 18's slot 7 leads right back to
+# 11). So slot 7 does NOT have one fixed meaning - "Oben" is a genuine,
+# narrow, room-specific exception, not a replacement label. DIRECTION_
+# NAMES reverts to "NW" as the slot's general/default label; room 2's
+# confirmed "Oben" override lives in `game.py`'s `EXIT_LABEL_OVERRIDES`
+# instead, used only by the F2 exits display - the underlying direction
+# id (and what you type to move) stays "NW" either way, matching how
+# the real exit table itself makes no distinction between the two
+# rooms' slot-7 records beyond a different `msg_code` (3 for room 2,
+# the generic 1 every confirmed-"Nordwesten" slot-7 exit uses,
+# including room 18) - suggestive of a real mechanism, but only room
+# 2's case is independently confirmed by real text, so only that one
+# is special-cased; room 83 shares the same unusual msg_code=3 and is a
+# plausible second "Oben"/"Unten" candidate, deliberately NOT included
+# without its own confirmation.
 DIRECTION_NAMES = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 DIRECTION_SLOTS = {name: i for i, name in enumerate(DIRECTION_NAMES)}
 
