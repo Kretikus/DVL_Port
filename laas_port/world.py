@@ -218,15 +218,12 @@ class ObjectInstance:
         against every confirmed identity in this project: every static
         NPC (Foroll, Mygra, Bauer, etc.) is False; every confirmed real
         combat creature (Brückentroll, both dragons, Tuatara) is True,
-        alongside ~15 more unnamed True entries with real hp - a clean,
-        useful signal even though the REAL per-monster valid-room-list
-        restriction (a separate far pointer in this same record)
-        couldn't be resolved (its target memory isn't reconstructable
-        from static analysis - see UPDATE 30). One known exception:
-        Steinkreuz (a stationary landmark) is also True despite not
-        being a creature - not a 100%-clean rule, but strong enough to
-        drive this port's simplified ambush check (see game.py's
-        `_check_ambush()`)."""
+        alongside ~15 more unnamed True entries with real hp. One known
+        exception: Steinkreuz (a stationary landmark) is also True
+        despite not being a creature. This flag alone is NOT enough to
+        decide random-ambush eligibility, though - `sub_C301` also
+        requires a real room list (see `has_room_list`); game.py's
+        `_check_ambush()` checks both."""
         return self.raw[4] != 0
 
     @property
@@ -234,6 +231,35 @@ class ObjectInstance:
         """The creature's own roll-threshold the PLAYER must clear to
         hit it - see combat.py's docstring."""
         return self.raw[2]
+
+    @property
+    def has_room_list(self) -> bool:
+        """Whether `raw[0xc:0x10]` (the far pointer UPDATE 30 flagged as
+        unresolvable) is populated at all - confirmed, PHASE0_FINDINGS.md
+        UPDATE 77, by fully re-disassembling `sub_C301` (the real random-
+        ambush trigger) byte-for-byte: it treats the pointer's two halves
+        both being -1 (0xFFFFFFFF) as an explicit "skip this instance
+        entirely" condition, checked before anything else (before even
+        the current-room comparison). So `ambush_eligible` alone was
+        never the full story - roughly a third of the eligible instances
+        (Oger, Skelett, Höhlentroll, Treksis, Golem, Dämon, Harpyie,
+        Brückentroll, Tuatara, Lindwurm, Tatzelwurm) have no list at all
+        and can NEVER be randomly ambushed by the real game, no matter
+        how their other flags read - they're fixed/room-bound encounters
+        that only ever appear because they're physically placed in a
+        room (the day/night roster, or a static location), not because
+        they wander. The 9 that DO have a real pointer (Goblin, 87/
+        Zombie, Werwolf, Ork, Slime, Wildschwein, Kobold, Bandit,
+        Raubfliege) are genuine wanderers. The list's own CONTENTS (which
+        specific rooms each wanderer is restricted to) were fully
+        decoded too, UPDATE 78 - see game.py's `MONSTER_ROOM_LISTS` -
+        by brute-force scanning a live memory dump for a base address
+        where all 9 wanderers' pointers simultaneously decode into
+        `sub_C301`'s confirmed (tag, room) pair format, rather than
+        guessing at an addressing convention. This property only tells
+        you whether a list exists; `MONSTER_ROOM_LISTS` has what's in
+        it."""
+        return self.raw[0xC:0x10] != b"\xff\xff\xff\xff"
 
 
 @dataclass

@@ -84,6 +84,9 @@ VERB_ALIASES = {
     # confirmed "What Picture ?" debug prompt - see game.py's bild()
     # and pictures.py, PHASE0_FINDINGS.md UPDATE 71).
     "bild": "BILD",
+    # DEBUG (F7) - a PORT UTILITY, no real equivalent - see game.py's
+    # debug_info().
+    "debug": "DEBUG",
     # ANLEGEN - the real, confirmed armor-equip verb (sub_133BE - see
     # PHASE0_FINDINGS.md UPDATE 23's follow-up / game.py's equip()).
     "equip": "EQUIP", "anlege": "EQUIP", "anlegen": "EQUIP", "ausruesten": "EQUIP",

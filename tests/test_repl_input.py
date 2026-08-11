@@ -156,7 +156,7 @@ def test_pynput_editor_ctrl_z_raises_eof(monkeypatch):
         repl_input._prompt_pynput("> ", "schwert")
 
 
-# --- _prompt_pynput() - F1-F6 shortcuts and ESC (user-implemented) ---
+# --- _prompt_pynput() - F1-F7 shortcuts and ESC (user-implemented) ---
 
 
 @pytest.mark.parametrize(
@@ -168,6 +168,7 @@ def test_pynput_editor_ctrl_z_raises_eof(monkeypatch):
         (keyboard.Key.f4, "Inventar", "Inventar."),
         (keyboard.Key.f5, "Zaubersprüche", "Zaubersprüche."),
         (keyboard.Key.f6, "BILD", "Bild ansehen."),
+        (keyboard.Key.f7, "DEBUG", "Debug-Info."),
     ],
 )
 def test_pynput_function_key_shortcuts(monkeypatch, capsys, key, expected_result, expected_print):

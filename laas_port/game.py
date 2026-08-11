@@ -83,6 +83,8 @@ from . import pictures
 from .monster_stats import MonsterStats
 from .repl_input import prompt_with_default, init_repl_input
 
+SHOW_PICTURES = False # Tests should not show pictures, but the real game does on first room visit
+
 DEFAULT_ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 
 DIRECTIONS = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"}
@@ -294,50 +296,144 @@ POTIDAN_QUEST_GERFS = 100
 # OUTSIDE the village - i.e. the first place random combat can occur.
 SAFE_ZONE_ROOMS = set(range(1, 10)) | {67}
 
-# Confirmed ROOM-BOUND creatures/objects (UPDATE 21's taxonomy: monsters
-# split into room-bound fixed encounters vs. the free-wandering ambush
-# pool) all have `ambush_eligible=True` in the raw instance data despite
-# not belonging to the wandering pool at all:
-#   105 Steinkreuz    - an ancient stone cross, a landmark, not even a
-#                       creature (UPDATE 30) - room 26.
-#   134 Bruckentroll  - guards the bridge, room 25 (UPDATE 21) - meant
-#                       to be fought there deliberately, not stumbled
-#                       into elsewhere.
-#   146 Tuatara       - the lake creature at the Fischerdorf, room 39 -
-#                       tied to a peaceful, scripted fetch-quest
-#                       (reference/walkthrough_de.txt: "Grüße Tuatara.
-#                       Bitte Tuatara um Hilfe für die Fischer."), not a
-#                       hostile random encounter (user-reported).
-#   237 Lindwurm      - dragon boss, room 109 (UPDATE 21).
-#   238 Tatzelwurm    - dragon boss, room 104 (UPDATE 21).
-# All five were harmless under the port's original (backwards) ambush
-# condition, which only considered candidates AT `LIMBO_REMOVED` and
-# none of these are ever at 299 - so none could be picked. UPDATE 48/49
-# correctly flipped that condition to match the real game (candidates
-# must NOT be at 299), and that fix, applied faithfully, exposed this
-# pre-existing data quirk for all five: each is now always "active"
-# (real location, ambush_eligible) and, under the port's own "any
-# non-Hyllok room" simplification (the real per-creature room-list
-# restriction is still unresolved, UPDATE 30), could ambush the player
-# anywhere instead of only at - or via a deliberate encounter with -
-# their own room. First Steinkreuz (UPDATE 51), then Tuatara (user-
-# reported) surfaced this; the fix was generalized here to cover all
-# five confirmed room-bound entries at once rather than patching them
-# in one at a time as each gets independently noticed. Not a generic
-# mechanism - a curated list of confirmed exceptions, extend only when
-# another one is confirmed the same way.
-AMBUSH_EXCLUDED_CODES = {105, 134, 146, 237, 238}
+# The real per-monster room-list CONTENT (PHASE0_FINDINGS.md UPDATE
+# 78) - the exact restriction UPDATE 30/77 had marked unreconstructable
+# from static analysis alone. Found by brute-force scanning a user-
+# supplied live memory dump (`MEMDUMP_in_fight_goblin.BIN`) for a base
+# address where all 9 wanderers' far pointers (`ObjectInstance.
+# has_room_list`'s `raw[0xc:0x10]`, segment 0x3337 for all of them)
+# simultaneously decode into `sub_C301`'s confirmed (tag, room) pair
+# format with every room in 1..108 - a search space narrow enough
+# (9 independent constraints at once) that a match is essentially
+# unambiguous. One candidate base (0x285C4, relative to the dump file's
+# own start) decoded all 9 cleanly; the `tag` half is read by
+# `sub_C301` only as a zero/nonzero terminator check, never compared
+# against anything else, so it carries no gameplay meaning beyond that
+# and isn't kept here. Cross-validated three ways: (1) byte-for-byte
+# identical across all 12 memory dumps supplied over the course of this
+# project, captured in entirely different rooms/sessions - confirming
+# genuinely static, session-independent game data, not a coincidence
+# of one capture; (2) Goblin's list contains rooms 11 and 12, both
+# "Das Hügelland" - the exact room the user's own ambush screenshot was
+# taken in; (3) Ork's list contains room 106, "Felsklippe" - the exact
+# room the user's second memory dump was captured in, fighting an Ork
+# there. Every entry also independently matches this project's own
+# already-confirmed DAY_ROSTER_BY_INSTANCE/NIGHT_ROSTER_BY_INSTANCE_*
+# placements (Zombie's list includes 23, Werwolf's includes 50,
+# Wildschwein's includes 51 - one off from its own confirmed 50, this
+# project's own long-flagged +1 discrepancy - Ork's includes 106,
+# Kobold's includes 43), and geographically clusters exactly as
+# expected: Goblin (11/12/17/19/26) and Raubfliege (a much longer list,
+# 10-16/18/30/40/41/44/47/91) both sit in the beginner region before
+# the bridge troll, matching the user's report precisely, while every
+# other wanderer's list sits entirely outside it (Werwolf/Wildschwein
+# share rooms 50-57, Ork sits at 46/48/105/106 near Felsklippe, Slime
+# at 92-96, Kobold at 42-44, Bandit at 71/73/74/76/79 near the
+# Magiergilde/78) - explaining exactly why Ork and Slime were wrongly
+# ambushing in the beginner area under the port's old "any non-Hyllok
+# room" simplification. Replaces UPDATE 77's `PRE_BRIDGE_ROOMS`/
+# `PRE_BRIDGE_ALLOWED_INSTANCES` heuristic entirely - this is the real
+# mechanism, not an approximation of it, and it applies everywhere, not
+# just before the bridge.
+MONSTER_ROOM_LISTS: dict[int, frozenset[int]] = {
+    0: frozenset({11, 12, 17, 19, 26}),               # Goblin
+    2: frozenset({14, 15, 17, 18, 22, 23, 24}),        # Zombie (87)
+    26: frozenset({50, 51, 52, 53, 54, 55, 56, 57}),   # Werwolf
+    27: frozenset({46, 48, 105, 106}),                 # Ork
+    28: frozenset({92, 93, 94, 95, 96}),                # Slime
+    30: frozenset({51, 52, 53, 54, 55, 56, 57}),        # Wildschwein
+    31: frozenset({42, 43, 44}),                        # Kobold
+    32: frozenset({71, 73, 74, 76, 79}),                # Bandit
+    36: frozenset({10, 11, 12, 13, 14, 15, 16, 18, 30, 40, 41, 44, 47, 91}),  # Raubfliege
+}
+
+# Room-bound creatures/objects (UPDATE 21's taxonomy: monsters split
+# into room-bound fixed encounters vs. the free-wandering ambush pool)
+# all have `ambush_eligible=True` in the raw instance data despite not
+# belonging to the wandering pool at all - 134 Bruckentroll (guards the
+# bridge, room 25), 146 Tuatara (the lake creature at the Fischerdorf,
+# room 39, tied to a peaceful fetch-quest, not hostile), 237 Lindwurm/
+# 238 Tatzelwurm (the two dragon bosses). UPDATE 48/49 correctly flipped
+# the ambush condition to match the real game (candidates must NOT be
+# at 299 rather than must be), which exposed these as newly "active"
+# false positives; UPDATE 74-76 patched them out one confirmed case at a
+# time via a hand-curated exclusion list.
+#
+# UPDATE 77 replaced that whole curated list with the REAL discriminator
+# it was always approximating: `ObjectInstance.has_room_list`. Fully
+# re-disassembling `sub_C301` (the actual random-ambush trigger) showed
+# it skips any instance whose room-list far pointer is the -1,-1
+# sentinel, unconditionally, before even checking the current room - and
+# every one of these four room-bound entries (confirmed via the RESTORE
+# instance table's own bytes) has exactly that sentinel. So does every
+# other confirmed room-bound/fixed encounter (Oger, Skelett,
+# Höhlentroll, Treksis, Golem, Dämon, Harpyie - previously handled by
+# `AMBUSH_EXCLUDED_INSTANCE_INDICES`, now removed the same way). One
+# entry in the old curated list was actually WRONG under this real
+# rule - Raubfliege (36) DOES have a real room-list pointer (a genuine
+# wanderer), so `AMBUSH_EXCLUDED_INSTANCE_INDICES` was silently keeping
+# a real early-game monster out of the pool; see `_ambush_candidates()`.
+#
+# Steinkreuz (105) was never part of either list (UPDATE 76): a live
+# memory dump captured mid-fight, plus a plain-text 39-entry name table
+# found in it (see INSTANCE_NAMES below), confirmed that instance 0 -
+# the slot object 105's own flags word happens to point to - is NOT
+# actually Steinkreuz's combat data at all. It's a genuine wandering
+# monster, "Goblin" (hp10/atk10/def10/1d6+3 damage - the user's own
+# screenshot shows a Goblin hit for exactly 9, the maximum possible
+# roll), which is exactly why it DOES have a real room-list pointer.
+# See AMBUSH_INSTANCE_IGNORES_OBJECT_CODE below for how instance 0's
+# ambushes avoid misidentifying themselves as Steinkreuz.
+
+# Confirmed via that same live memory dump (user-supplied,
+# "MEMDUMP_in_fight_goblin.BIN") - a plain-text (NOT STORY-encoded),
+# NUL-separated name table with exactly 39 entries, one per instance
+# index in exact ascending order. Cross-validated against EVERY
+# already-independently-confirmed identity with zero mismatches
+# (instance 10=Bauer/99, 11=Bruckentroll/134, 12=Tuatara/146,
+# 13=Phadraig/147, 14=Oger/162, 15=Yarom/167, 16=Bettler/183,
+# 21=Lindwurm/237, 22=Tatzelwurm/238, 23=Potidan/243, 24=Skelett/244,
+# 25=Höhlentroll - UPDATE 74's own room-text-based find). This resolves
+# every remaining "Kreatur #N" wanderer at once, PLUS names object 87
+# for the first time (instance 2 = "Zombie" - see names.py). Only the
+# subset without their own confirmed object-code name is listed here;
+# instance 0 (Goblin) is included despite HAVING a mapped code (105,
+# Steinkreuz) because that code's own name is wrong for ambush purposes
+# - see AMBUSH_INSTANCE_IGNORES_OBJECT_CODE.
+INSTANCE_NAMES = {
+    0: "Goblin",
+    25: "Höhlentroll",
+    26: "Werwolf",
+    27: "Ork",
+    28: "Slime",
+    29: "Treksis",
+    30: "Wildschwein",
+    31: "Kobold",
+    32: "Bandit",
+    33: "Golem",
+    34: "Dämon",
+    35: "Harpyie",
+    36: "Raubfliege",
+}
+
+# Instance 0's own object-code link (105/Steinkreuz) must be ignored
+# for ambush naming/movement - using it would misname the Goblin as
+# "Steinkreuz" and incorrectly relocate the actual Steinkreuz landmark
+# object out of its own room (26) whenever the Goblin ambushes.
+AMBUSH_INSTANCE_IGNORES_OBJECT_CODE = {0}
 
 # Day/night NPC and monster roster (PHASE0_FINDINGS.md UPDATE 49):
 # confirmed via the day/night clock's own dawn/nightfall subroutines,
 # which place each roster member at a specific room for its active
 # phase and reset it to LIMBO_REMOVED for the other phase - dawn and
-# nightfall are exact mirror images of each other. Only entries with a
-# CONFIRMED object code are ported here; the real game also cycles
-# several more (day instance indices 27/28/30, night indices 26/31/32/
-# 33/34, one of them gated behind a progression check) that this
-# session couldn't resolve to a real object code - a known, documented
-# gap, not guessed around with a synthetic identifier.
+# nightfall are exact mirror images of each other. These entries all
+# have a confirmed object code; the real game also cycles several more
+# members that were never resolved to an object code (day instance
+# indices 27/28/30, night indices 26/31/32/33/34, gated behind a
+# progression check) - wired up separately below
+# (DAY_ROSTER_BY_INSTANCE/NIGHT_ROSTER_BY_INSTANCE_*), since they
+# genuinely have no object code at all (UPDATE 74), not a gap left
+# unaddressed.
 #
 # Room values for 30/31/32/33 (the room-1/room-2 family members) match
 # the disassembly exactly. Bauer/Yarom/Bettler's rooms use their
@@ -361,6 +457,56 @@ NIGHT_ROSTER = {
     162: 32,  # Oger (confirmed via FEBR, UPDATE 38 - room not independently confirmed)
     244: 28,
 }
+
+# The day/night roster members UPDATE 49 confirmed but couldn't resolve
+# to an object code (see DAY_ROSTER's own docstring) - wired up here
+# UPDATE 74 by INSTANCE INDEX directly, since that's genuinely how the
+# real dawn/nightfall subroutine addresses them (`word_16A4 +
+# instance_index*0x20`, confirmed - no object-code lookup involved at
+# all for these). Room values for 27/28/30 are read directly from this
+# port's own world data (matching UPDATE 49's own hand-decoded values
+# almost exactly, the ~105/106 approximation resolving cleanly to 106).
+# `_instance_location_overrides` (parallel to `_location_overrides`'s
+# object-code keying) tracks these; `_advance_day_night_roster()`
+# toggles them the same way as DAY_ROSTER/NIGHT_ROSTER.
+DAY_ROSTER_BY_INSTANCE = {27: 106, 28: 93, 30: 50}
+
+# UPDATE 49's confirmed progression gate: nightfall checks Ansehen
+# (`word_b688`, confirmed identity - UPDATE 67) >= 5 to decide which
+# night roster is active - EARLY replaces with LATE once unlocked, they
+# never coexist (instance 31 is exclusively early-game; 26/33/34
+# exclusively late-game).
+NIGHT_ROSTER_BY_INSTANCE_EARLY = {31: 43}
+NIGHT_ROSTER_BY_INSTANCE_LATE = {26: 50, 33: 45, 34: 43}
+ANSEHEN_LATE_ROSTER_THRESHOLD = 5
+
+# A THIRD night roster member (UPDATE 49's own table, initially missed
+# when this was first wired up - caught during a user-driven follow-up
+# investigation, UPDATE 75) - listed there with no "early/late"
+# qualifier, unlike 31 and 26/33/34: unconditionally active every
+# night regardless of Ansehen, not part of the progression swap.
+NIGHT_ROSTER_BY_INSTANCE_ALWAYS = {32: 78}  # room 78, "Die Magiergilde"
+
+# The remaining ambush-eligible-but-uncoded instances found alongside
+# the day/night roster gap (UPDATE 74), each sitting at a REAL, FIXED
+# room regardless of time of day: 25="Höhlentroll" (room 64/65, already
+# confirmed independently via room_text.py messages 1590/1599, a nice
+# cross-check), 29="Treksis" (room 101), 35="Harpyie" (room 108) -
+# genuinely room-bound (`has_room_list` is False for all three, per
+# UPDATE 77), so `_ambush_candidates()` excludes them the same way it
+# now excludes Oger/Skelett/Golem/Dämon/Bruckentroll/Tuatara/Lindwurm/
+# Tatzelwurm - via the real room-list check, not a curated list.
+#
+# 36="Raubfliege" (room 16) was ORIGINALLY grouped in here too (a
+# curated `AMBUSH_EXCLUDED_INSTANCE_INDICES` set, since removed) on the
+# same "sits at one fixed room" reasoning - but UPDATE 77 found that
+# reasoning doesn't hold for Raubfliege specifically: unlike the other
+# three, it DOES have a real room-list pointer, meaning the real game
+# treats it as a genuine wanderer (matching the user's own gameplay
+# report that Raubfliege ambushes alongside Goblin in the early rooms).
+# It was a real bug, not a redundant safeguard - now a normal wandering
+# candidate again, room 16 is just its static default rather than a
+# day/night-toggled slot.
 
 # The automatic room->picture table (PHASE0_FINDINGS.md UPDATE 72):
 # `word_ad62` (the pointer `sub_495a`'s room-lookup reads - see
@@ -560,6 +706,13 @@ class GameState:
         # place (see World.object_location) - everything else has no
         # location concept at all, in this port or the original game.
         self._location_overrides: dict[int, int] = {}
+        # Same idea as `_location_overrides`, but keyed by raw INSTANCE
+        # INDEX rather than object code - for the confirmed ambush-
+        # eligible creatures that have no object code mapped to them at
+        # all (DAY_ROSTER_BY_INSTANCE/NIGHT_ROSTER_BY_INSTANCE_*,
+        # PHASE0_FINDINGS.md UPDATE 49/74). See `_instance_location()`/
+        # `_move_instance()`.
+        self._instance_location_overrides: dict[int, int] = {}
         # Runtime door-state overrides, keyed (room, slot) -> msg_code.
         # Mirrors the original's `sub_EEC0`: mutating one side of a door
         # always mutates the reciprocal slot in the destination room too
@@ -697,17 +850,27 @@ class GameState:
         # deliberate simplifications - no real spell effects, no real
         # weapon modifiers, even though both are now PROMPTED FOR - see
         # the "combat" section below). None when no fight is in
-        # progress. `_combat_monster_code` is the object code currently
-        # being fought; `_combat_monster_hp` is its remaining hp this
-        # fight (starts at the object's own instance-record hp, see
-        # world.py's ObjectInstance.hp). `_combat_awaiting` is which
-        # prompt is currently pending - None, "weapon", or "spell" -
-        # confirmed via real screenshots and direct user correction:
-        # the real game asks "Welche Waffe...?" then "Welchen
-        # Zauber...?" BEFORE resolving each round, automatically
-        # re-asking for the next round's weapon immediately if the
-        # fight continues - not a separate "attackiere" command each
-        # round (this port's first draft got that wrong).
+        # progress. `_combat_instance_idx` is the PRIMARY "are we
+        # fighting" signal (0-38, see world.py's ObjectInstance.index) -
+        # ALWAYS set while a fight is on, whether or not the monster has
+        # a mapped object code (see UPDATE 74: the confirmed real
+        # ambush scanner works by raw instance index, not object code,
+        # and roughly a third of real eligible creatures have no
+        # object code mapped at all). `_combat_monster_code` is that
+        # object code WHEN one exists (None otherwise - used for
+        # naming and the quest-specific kill hooks below, never as the
+        # "are we fighting" check - use `_combat_instance_idx` for
+        # that). `_combat_monster_hp` is remaining hp this fight
+        # (starts at the object's own instance-record hp). `_combat_
+        # awaiting` is which prompt is currently pending - None,
+        # "weapon", or "spell" - confirmed via real screenshots and
+        # direct user correction: the real game asks "Welche Waffe...?"
+        # then "Welchen Zauber...?" BEFORE resolving each round,
+        # automatically re-asking for the next round's weapon
+        # immediately if the fight continues - not a separate
+        # "attackiere" command each round (this port's first draft got
+        # that wrong).
+        self._combat_instance_idx: int | None = None
         self._combat_monster_code: int | None = None
         self._combat_monster_hp: int | None = None
         self._combat_awaiting: str | None = None
@@ -806,6 +969,33 @@ class GameState:
     def _move_object(self, code: int, dest_room: int):
         self._location_overrides[code] = dest_room
 
+    def _object_code_for_instance(self, instance_idx: int) -> int | None:
+        """Reverse lookup of `ObjectFlags.instance_index` - most
+        instances have exactly one object code pointing to them; the
+        confirmed ambush-eligible creatures with no object code at all
+        (see DAY_ROSTER_BY_INSTANCE etc., UPDATE 74) return None."""
+        for code in range(len(self.world.flags)):
+            flag = self.world.flags[code]
+            if flag.has_instance and flag.instance_index == instance_idx:
+                return code
+        return None
+
+    def _instance_location(self, instance_idx: int) -> int:
+        """An instance's current room by INDEX rather than object code -
+        works for every instance regardless of whether one is mapped
+        (delegates to `object_location()` when it is, so the two stay
+        consistent; falls back to `_instance_location_overrides`/the
+        raw static default otherwise)."""
+        code = self._object_code_for_instance(instance_idx)
+        if code is not None:
+            return self.object_location(code)
+        return self._instance_location_overrides.get(
+            instance_idx, self.world.instances[instance_idx].location
+        )
+
+    def _move_instance(self, instance_idx: int, dest_room: int) -> None:
+        self._instance_location_overrides[instance_idx] = dest_room
+
     # --- save/load ---
     #
     # Not a port of the original's save format - RESTORE's own 18200-byte
@@ -825,6 +1015,9 @@ class GameState:
             "current_room": self.current_room,
             "narrator": int(self.narrator),
             "location_overrides": {str(k): v for k, v in self._location_overrides.items()},
+            "instance_location_overrides": {
+                str(k): v for k, v in self._instance_location_overrides.items()
+            },
             "door_state_overrides": [
                 [room, slot, code] for (room, slot), code in self._door_state_overrides.items()
             ],
@@ -844,6 +1037,7 @@ class GameState:
             "smirga_durst": self.smirga_durst,
             "aszhanti_armor": self.aszhanti_armor,
             "smirga_armor": self.smirga_armor,
+            "combat_instance_idx": self._combat_instance_idx,
             "combat_monster_code": self._combat_monster_code,
             "combat_monster_hp": self._combat_monster_hp,
             "combat_awaiting": self._combat_awaiting,
@@ -873,6 +1067,9 @@ class GameState:
         self.current_room = data["current_room"]
         self.narrator = Character(data["narrator"])
         self._location_overrides = {int(k): v for k, v in data["location_overrides"].items()}
+        self._instance_location_overrides = {
+            int(k): v for k, v in data.get("instance_location_overrides", {}).items()
+        }
         self._door_state_overrides = {
             (room, slot): code for room, slot, code in data["door_state_overrides"]
         }
@@ -892,7 +1089,12 @@ class GameState:
         self.smirga_durst = data.get("smirga_durst", 100)
         self.aszhanti_armor = data.get("aszhanti_armor")
         self.smirga_armor = data.get("smirga_armor")
+        self._combat_instance_idx = data.get("combat_instance_idx")
         self._combat_monster_code = data.get("combat_monster_code")
+        if self._combat_instance_idx is None and self._combat_monster_code is not None:
+            # Pre-UPDATE-74 save - back-fill from the object code (every
+            # fight startable via attack()/typed noun always has one).
+            self._combat_instance_idx = self.world.flags[self._combat_monster_code].instance_index
         self._combat_monster_hp = data.get("combat_monster_hp")
         self._combat_awaiting = data.get("combat_awaiting")
         self._awaiting_picture_number = data.get("awaiting_picture_number", False)
@@ -1261,12 +1463,83 @@ class GameState:
         confirmed real starting room (67) has a picture, so the real
         game shows one immediately, unprompted, before you type
         anything."""
+
         picture = ROOM_PICTURE_TABLE.get(self.current_room)
         if picture is None or picture == self._last_shown_picture:
             return None
         self._last_shown_picture = picture
-        pictures.show_picture(self.assets_dir, picture)
+        if SHOW_PICTURES:
+            pictures.show_picture(self.assets_dir, picture)
         return f"[Bild {picture}]"
+
+    def debug_info(self) -> str:
+        """DEBUG (F7) - a PORT UTILITY, not a reproduction of any real
+        game screen: dumps the internal counters and calculations
+        behind this port's own mechanics, in particular the confirmed
+        ambush roll (PHASE0_FINDINGS.md UPDATE 30, corrected UPDATE
+        48/49: 1d6 per eligible candidate, ambush on a roll >3, first
+        candidate to succeed wins - see `_check_ambush()`). The
+        candidate list/probability shown here is a live, exact
+        recomputation (`_ambush_candidates()`), not a cached guess."""
+        safe_zone = self.current_room in SAFE_ZONE_ROOMS
+        fighting = self._combat_instance_idx is not None
+        candidates = self._ambush_candidates()
+        n = len(candidates)
+        probability = 1 - 0.5 ** n if n else 0.0
+        if fighting:
+            ambush_note = " (Kampf läuft bereits - kein Ambush-Wurf)"
+        elif safe_zone:
+            ambush_note = " (Safe Zone - kein Ambush-Wurf)"
+        else:
+            ambush_note = ""
+        day_or_night = "Tag" if self.time_of_day < 0x80 else "Nacht"
+        candidate_labels = []
+        for idx in candidates:
+            code = (
+                None
+                if idx in AMBUSH_INSTANCE_IGNORES_OBJECT_CODE
+                else self._object_code_for_instance(idx)
+            )
+            if code is not None:
+                candidate_labels.append(f"{idx}({self._object_display_name(code)})")
+            elif idx in INSTANCE_NAMES:
+                candidate_labels.append(f"{idx}({INSTANCE_NAMES[idx]})")
+            else:
+                candidate_labels.append(f"{idx}(kein Code)")
+
+        lines = [
+            "=== DEBUG ===",
+            f"Raum: {self.current_room} (Safe Zone: {'ja' if safe_zone else 'nein'})",
+            f"Uhrzeit: {self.time_of_day}/255 ({day_or_night})  Tag {self.day_count}  "
+            f"Runden gesamt: {self._turn_counter}",
+            f"Ambush-Kandidaten (Instanz-Index): {candidate_labels} (n={n})",
+            f"Ambush-Wahrscheinlichkeit: 1 - 0.5^{n} = {probability:.1%}{ambush_note}",
+        ]
+        if fighting:
+            name = self._combat_monster_display_name()
+            lines.append(
+                f"Kampf: {name} (Instanz #{self._combat_instance_idx}, "
+                f"Code={self._combat_monster_code}) "
+                f"HP={self._combat_monster_hp}  wartet_auf={self._combat_awaiting}"
+            )
+        else:
+            lines.append("Kampf: keiner")
+        lines += [
+            f"Ansehen: {self.ansehen}  Gerfs: {self.money}",
+            f"Stärke (Asz/Smi): {self.aszhanti_strength}/{self.smirga_strength}  "
+            f"Astral (Asz): {self.aszhanti_astral}",
+            f"HP (Asz/Smi): {self.aszhanti_health}/{self.aszhanti_max_health}  "
+            f"{self.smirga_health}/{self.smirga_max_health}",
+            f"Rüstung (Asz/Smi): {self.aszhanti_armor}/{self.smirga_armor}",
+            f"Hunger: {self.hunger}  Durst (Asz/Smi): {self.aszhanti_durst}/{self.smirga_durst}",
+            f"Scarabäus: charge={self.scarabaeus_charge}  gewarnt={self._gas_trap_warned}  "
+            f"recharge_deadline={self._scarabaeus_recharge_deadline}",
+            f"Bauer-Quest: state={self._farmer_quest_state}  sturm_runden={self._farmer_storm_turns}",
+            f"Tuatara-Quest: stage={self._tuatara_quest_stage}  gegruesst={self._tuatara_greeted}",
+            f"Potidan-Quest: stage={self._potidan_quest_stage}",
+            f"Letztes Bild: {self._last_shown_picture}  wartet_auf_bildnummer={self._awaiting_picture_number}",
+        ]
+        return "\n".join(lines)
 
     def status(self) -> str:
         """The real "Zustandsübersicht" screen, same line order as the
@@ -1801,11 +2074,32 @@ class GameState:
         suffix = "ist hier." if len(names) == 1 else "sind hier."
         return f"{joined} {suffix}"
 
-    def _start_combat(self, code: int) -> None:
-        instance_idx = self.world.flags[code].instance_index
+    def _start_combat(self, code: int | None, instance_idx: int | None = None) -> None:
+        """Starts a fight. `code` is the object code when one exists
+        (the normal case - `attack()`'s typed-noun path always has
+        one); pass `code=None` with an explicit `instance_idx` for a
+        confirmed-eligible creature that has no mapped object code
+        (see `_check_ambush()` - UPDATE 74)."""
+        if instance_idx is None:
+            instance_idx = self.world.flags[code].instance_index
+        self._combat_instance_idx = instance_idx
         self._combat_monster_code = code
         self._combat_monster_hp = self.world.instances[instance_idx].hp
         self._combat_awaiting = "weapon"
+
+    def _combat_monster_display_name(self) -> str:
+        """The current fight's display name - the object's real name
+        when a code is mapped, the confirmed `INSTANCE_NAMES` entry
+        when one exists (UPDATE 76), an honest "unidentified creature"
+        numeric fallback (by instance index) otherwise - matching the
+        SAME "numeric fallback... most of the candidate pool is still
+        unnamed" precedent `_object_display_name()` already uses for
+        unnamed-but-coded objects (PHASE0_FINDINGS.md UPDATE 30)."""
+        if self._combat_monster_code is not None:
+            return self._object_display_name(self._combat_monster_code)
+        if self._combat_instance_idx in INSTANCE_NAMES:
+            return INSTANCE_NAMES[self._combat_instance_idx]
+        return f"Kreatur #{self._combat_instance_idx}"
 
     def attack(self, noun: str | None) -> str:
         """Starts a fight against `noun` - an instance-tracked object
@@ -1817,7 +2111,7 @@ class GameState:
         Q&A flow. If already fighting, just re-sends whichever prompt
         is currently pending (weapon or spell) instead of starting a
         new fight."""
-        if self._combat_monster_code is None:
+        if self._combat_instance_idx is None:
             if not noun:
                 return "Wen soll ich angreifen?"
             candidates = [
@@ -1856,7 +2150,7 @@ class GameState:
             return self.SPELL_PROMPT
 
         result = self._resolve_combat_round(spell_choice=answer, rng=rng)
-        if self._combat_monster_code is not None:
+        if self._combat_instance_idx is not None:
             # Fight continues - the real game immediately re-prompts
             # for the next round's weapon, no extra command needed.
             self._combat_awaiting = "weapon"
@@ -1876,6 +2170,7 @@ class GameState:
         (`running=False`) if triggered."""
         if self.aszhanti_health <= 0 or self.smirga_health <= 0:
             lines.append(self.story.message(1497))
+            self._combat_instance_idx = None
             self._combat_monster_code = None
             self._combat_monster_hp = None
             self._combat_awaiting = None
@@ -1893,6 +2188,7 @@ class GameState:
         self.smirga_strength += self.monster_stats.strength_reward(instance_idx)
         self.aszhanti_max_health += 1
         self.smirga_max_health += 1
+        self._combat_instance_idx = None
         self._combat_monster_code = None
         self._combat_monster_hp = None
         self._combat_awaiting = None
@@ -1921,10 +2217,9 @@ class GameState:
         deterministically without threading fake weapon/spell answers
         through the prompts first. `rng` is exposed for the same reason
         - real play always uses the default, real `random` module."""
-        code = self._combat_monster_code
-        instance_idx = self.world.flags[code].instance_index
+        instance_idx = self._combat_instance_idx
         monster = self.world.instances[instance_idx]
-        name = self._object_display_name(code)
+        name = self._combat_monster_display_name()
 
         result = combat.resolve_round(
             monster,
@@ -2027,7 +2322,7 @@ class GameState:
                 lines.append(f"Aszhanti schleudert seinen Topa und {name} wird sehr stark verwirrt!")
         elif spell_choice == "febr":
             febr = combat.resolve_febr(
-                monster_code=code,
+                monster_code=self._combat_monster_code,
                 monster_hp_before=self._combat_monster_hp,
                 aszhanti_astral=self.aszhanti_astral,
                 aszhanti_strength=self.aszhanti_strength,
@@ -2061,8 +2356,9 @@ class GameState:
         formula wasn't traced (out of scope for this pass, see
         combat.py's docstring for what WAS ported). This always
         succeeds."""
-        if self._combat_monster_code is None:
+        if self._combat_instance_idx is None:
             return "Ich kämpfe gerade nicht."
+        self._combat_instance_idx = None
         self._combat_monster_code = None
         self._combat_monster_hp = None
         self._combat_awaiting = None
@@ -2070,9 +2366,12 @@ class GameState:
 
     def _check_ambush(self, rng=random) -> str | None:
         """Port of the confirmed core of `sub_C301` (see
-        PHASE0_FINDINGS.md UPDATE 30, corrected in UPDATE 48/49): a
-        per-move chance for a currently-ACTIVE creature to appear and
-        start a fight.
+        PHASE0_FINDINGS.md UPDATE 30, corrected in UPDATE 48/49, and
+        UPDATE 74: the real function "scans all 39 instance records"
+        directly, NOT by object code - this port's own iteration was
+        silently missing every ambush-eligible creature with no object
+        code mapped to it, a full third of the real total. User-
+        reported: real, near-total loss of ambushes as a consequence).
 
         CORRECTED (UPDATE 48): the real `sub_C301` SKIPS a candidate
         whose location equals `LIMBO_REMOVED` (299) - verified directly
@@ -2082,54 +2381,79 @@ class GameState:
         299). 299 doesn't mean "off-stage, waiting to wander" - it
         means "not currently active for this time-of-day phase" (see
         UPDATE 49: the day/night clock's dawn/nightfall subroutines
-        toggle `DAY_ROSTER`/`NIGHT_ROSTER` members between a real room
-        and 299 - `_advance_clock()` calls `_advance_day_night_roster()`
-        at those exact transitions).
+        toggle the roster between a real room and 299 -
+        `_advance_clock()` calls `_advance_day_night_roster()` at those
+        exact transitions).
 
-        KNOWN SIMPLIFICATION: the real game also restricts each
-        creature to its own specific list of valid rooms (a far pointer
-        this project couldn't resolve - see UPDATE 30) - not reproduced
-        here, so any currently-active candidate can ambush in any room
-        OUTSIDE Hyllok (user-confirmed: the village is a safe zone,
-        room 10 - "Vor Hyllok" - is the confirmed first room where
-        combat can occur at all - see `SAFE_ZONE_ROOMS`). Candidates
-        are instance-tracked objects that are `ambush_eligible` (see
-        world.py's `ObjectInstance`), NOT currently at the
-        `LIMBO_REMOVED` sentinel, and not in `AMBUSH_EXCLUDED_CODES`
-        (the confirmed room-bound creatures/objects - Steinkreuz,
-        Bruckentroll, Tuatara, Lindwurm, Tatzelwurm - all flagged
-        eligible in the raw data despite belonging to fixed encounters
-        rather than the wandering pool, exposed by the location-
-        condition fix above - see that constant's docstring). Confirmed
-        roll: 1d6, triggers on > 3 (a clean 50% chance) - first
-        eligible candidate (ascending object code) to roll a success
-        wins, matching the real function's first-match-wins behavior.
-        Does nothing if already fighting."""
-        if self._combat_monster_code is not None:
+        UPDATE 77/78: fully re-disassembled `sub_C301` and found it
+        skips any instance whose room-list far pointer is unset before
+        checking anything else, AND - once decoded from a live memory
+        dump, UPDATE 78 - restricts a real wanderer to only its own
+        specific list of rooms (see `MONSTER_ROOM_LISTS`). Outside a
+        wanderer's own list, it simply isn't a candidate at all - not
+        even to roll and fail, matching the real function exactly.
+        Combat can still only happen outside Hyllok in the first place
+        (user-confirmed: the village is a safe zone, room 10 - "Vor
+        Hyllok" - is the confirmed first room where combat can occur at
+        all - see `SAFE_ZONE_ROOMS`). Confirmed roll: 1d6, triggers on
+        > 3 (a clean 50% chance) -
+        first eligible candidate (ascending INSTANCE INDEX, matching the
+        real scan order) to roll a success wins, matching the real
+        function's first-match-wins behavior. Does nothing if already
+        fighting."""
+        if self._combat_instance_idx is not None:
             return None
         if self.current_room in SAFE_ZONE_ROOMS:
             return None
-        for code in range(len(self.world.flags)):
-            if code in AMBUSH_EXCLUDED_CODES:
-                continue
-            flag = self.world.flags[code]
-            if not flag.has_instance:
-                continue
-            instance = self.world.instances[flag.instance_index]
-            if not instance.ambush_eligible:
-                continue
-            if self.object_location(code) == LIMBO_REMOVED:
-                continue
+        for idx in self._ambush_candidates():
             if combat.d6(rng) <= 3:
                 continue
-            self._move_object(code, self.current_room)
-            self._start_combat(code)
-            name = self._object_display_name(code)
+            code = (
+                None
+                if idx in AMBUSH_INSTANCE_IGNORES_OBJECT_CODE
+                else self._object_code_for_instance(idx)
+            )
+            if code is not None:
+                self._move_object(code, self.current_room)
+            else:
+                self._move_instance(idx, self.current_room)
+            self._start_combat(code, instance_idx=idx)
+            name = self._combat_monster_display_name()
             return (
                 f"Plötzlich, wie aus dem Nichts, taucht {name} auf und greift uns an.\n\n"
                 f"{self.WEAPON_PROMPT}"
             )
         return None
+
+    def _ambush_candidates(self) -> list[int]:
+        """The INSTANCE INDICES (not object codes - UPDATE 74)
+        `_check_ambush()` would roll against right now, in the same
+        ascending order - factored out so the debug view (see
+        debug_info()) can report the exact live candidate list and
+        probability without duplicating the eligibility rules.
+
+        An instance is a candidate iff it's `ambush_eligible`, currently
+        active (not `LIMBO_REMOVED`), and the CURRENT ROOM is in its own
+        confirmed `MONSTER_ROOM_LISTS` entry (UPDATE 77/78 - the real
+        `sub_C301` requires both a room list to exist at all AND the
+        current room to actually be in it; an instance with no entry in
+        `MONSTER_ROOM_LISTS` - i.e. no room list, confirmed via
+        `ObjectInstance.has_room_list` - can never be a candidate
+        anywhere). This replaces the old hand-curated
+        `AMBUSH_EXCLUDED_CODES`/`AMBUSH_EXCLUDED_INSTANCE_INDICES`
+        lists (UPDATE 77) and UPDATE 77's own `PRE_BRIDGE_ROOMS`
+        heuristic (UPDATE 78) with the real, fully-decoded mechanism."""
+        candidates = []
+        for idx in range(len(self.world.instances)):
+            instance = self.world.instances[idx]
+            if not instance.ambush_eligible:
+                continue
+            if self.current_room not in MONSTER_ROOM_LISTS.get(idx, ()):
+                continue
+            if self._instance_location(idx) == LIMBO_REMOVED:
+                continue
+            candidates.append(idx)
+        return candidates
 
     # --- doors (OPEN/CLOSE/LOCK/UNLOCK - see decompiled/seg005_batch5.md) ---
 
@@ -2325,6 +2649,8 @@ class GameState:
             return self.spells()
         if command.verb == "BILD":
             return self.bild(command.noun)
+        if command.verb == "DEBUG":
+            return self.debug_info()
         if command.verb == "ATTACK":
             return self.attack(command.noun)
         if command.verb == "FLEE":
@@ -2393,17 +2719,48 @@ class GameState:
         confirmed rooms and clear `NIGHT_ROSTER` to `LIMBO_REMOVED`; at
         nightfall, the exact mirror. Only the two exact clock values
         that trigger this in the real game (dawn=0, nightfall=0x80) do
-        anything here - noon/dusk don't touch the roster."""
+        anything here - noon/dusk don't touch the roster.
+
+        Also toggles DAY_ROSTER_BY_INSTANCE/NIGHT_ROSTER_BY_INSTANCE_*
+        (UPDATE 74) the same way, by instance index instead of object
+        code, including the confirmed Ansehen>=5 progression gate that
+        swaps which night roster is active (they never coexist)."""
         if self.time_of_day == 0:
             for code, room in DAY_ROSTER.items():
                 self._move_object(code, room)
             for code in NIGHT_ROSTER:
                 self._move_object(code, LIMBO_REMOVED)
+            for idx, room in DAY_ROSTER_BY_INSTANCE.items():
+                self._move_instance(idx, room)
+            for idx in {
+                **NIGHT_ROSTER_BY_INSTANCE_EARLY,
+                **NIGHT_ROSTER_BY_INSTANCE_LATE,
+                **NIGHT_ROSTER_BY_INSTANCE_ALWAYS,
+            }:
+                self._move_instance(idx, LIMBO_REMOVED)
         elif self.time_of_day == 0x80:
             for code in DAY_ROSTER:
                 self._move_object(code, LIMBO_REMOVED)
             for code, room in NIGHT_ROSTER.items():
                 self._move_object(code, room)
+            for idx in DAY_ROSTER_BY_INSTANCE:
+                self._move_instance(idx, LIMBO_REMOVED)
+            active_night_roster = (
+                NIGHT_ROSTER_BY_INSTANCE_LATE
+                if self.ansehen >= ANSEHEN_LATE_ROSTER_THRESHOLD
+                else NIGHT_ROSTER_BY_INSTANCE_EARLY
+            )
+            inactive_night_roster = (
+                NIGHT_ROSTER_BY_INSTANCE_EARLY
+                if self.ansehen >= ANSEHEN_LATE_ROSTER_THRESHOLD
+                else NIGHT_ROSTER_BY_INSTANCE_LATE
+            )
+            for idx in inactive_night_roster:
+                self._move_instance(idx, LIMBO_REMOVED)
+            for idx, room in active_night_roster.items():
+                self._move_instance(idx, room)
+            for idx, room in NIGHT_ROSTER_BY_INSTANCE_ALWAYS.items():
+                self._move_instance(idx, room)
 
     def _advance_room_events(self) -> str | None:
         """Ambient per-turn 'impatience' tick (see ROOM_IMPATIENCE_EVENTS)
@@ -2601,5 +2958,8 @@ def repl(assets_dir: Path = DEFAULT_ASSETS_DIR):
 
 
 if __name__ == "__main__":
+    # Show pictures on first room visit only in the real game
+    SHOW_PICTURES = True
+
     init_repl_input()
     repl()

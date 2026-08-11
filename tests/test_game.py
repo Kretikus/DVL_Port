@@ -8,13 +8,17 @@ import json
 from laas_port import pictures
 from laas_port.characters import Character
 from laas_port.game import (
+    ANSEHEN_LATE_ROSTER_THRESHOLD,
     DAY_ROSTER,
+    DAY_ROSTER_BY_INSTANCE,
     FANATIC_AMBUSH_ROOM,
     FARMER_CODE,
     FARMER_QUEST_SCHINKEN_CODE,
     FARMER_QUEST_STORM_TURNS,
     FARMER_ROOM,
     NIGHT_ROSTER,
+    NIGHT_ROSTER_BY_INSTANCE_EARLY,
+    NIGHT_ROSTER_BY_INSTANCE_LATE,
     MONDSCHEINKRAUT_CODE,
     PHADRAIG_CODE,
     POTIDAN_HERB_VALLEY_ROOM,
@@ -603,10 +607,12 @@ def test_noon_and_dusk_do_not_touch_the_roster(game):
 
 def test_night_roster_monster_only_ambushes_after_nightfall(game):
     """End-to-end: object 87 (NIGHT_ROSTER) can't ambush during the day
-    (still LIMBO_REMOVED) but can once nightfall places it."""
+    (still LIMBO_REMOVED) but can once nightfall places it. Room 23 is
+    both object 87's own confirmed NIGHT_ROSTER room and, per UPDATE 78,
+    in its `MONSTER_ROOM_LISTS` entry."""
     from laas_port.world import LIMBO_REMOVED
 
-    game.current_room = 10  # outside the safe zone
+    game.current_room = 23  # outside the safe zone
     assert game.object_location(87) == LIMBO_REMOVED  # not yet - still day/inactive
 
     game.time_of_day = 0x7F
@@ -1254,8 +1260,8 @@ def test_execute_chain_routes_to_combat_answer_while_a_fight_is_pending(game):
 
 
 def test_ambush_triggers_on_a_successful_roll_and_starts_combat(game):
-    game.current_room = 10  # "Vor Hyllok" - outside the safe zone (see SAFE_ZONE_ROOMS)
-    game._location_overrides[87] = 10  # active, matching a real nightfall placement
+    game.current_room = 23  # in object 87's own MONSTER_ROOM_LISTS entry (UPDATE 78)
+    game._location_overrides[87] = 23  # active, matching a real nightfall placement
     rng = _FakeRng([6])  # 1d6 roll of 6 > 3 -> ambush succeeds
     result = game._check_ambush(rng=rng)
     assert result is not None
@@ -1305,7 +1311,7 @@ def test_steinkreuz_never_ambushes_despite_its_raw_ambush_eligible_flag(game):
     names.py), not a creature - its `ambush_eligible=True` flag is a
     genuine data quirk (UPDATE 30), harmless under the port's original
     (backwards) ambush condition but exposed once that was corrected
-    (UPDATE 48) - see AMBUSH_EXCLUDED_CODES."""
+    (UPDATE 48) - see `ObjectInstance.has_room_list` (UPDATE 77)."""
     game.current_room = 10  # outside the safe zone
     assert game.world.instances[game.world.flags[105].instance_index].ambush_eligible
     assert game.object_location(105) == 26  # its own room, not LIMBO_REMOVED
@@ -1321,7 +1327,7 @@ def test_tuatara_never_ambushes_despite_its_raw_ambush_eligible_flag(game):
     Tuatara um Hilfe für die Fischer."), not a hostile random encounter.
     Same bug shape as Steinkreuz: `ambush_eligible=True` is a genuine
     data quirk, exposed once the ambush condition was corrected
-    (UPDATE 48) - see AMBUSH_EXCLUDED_CODES."""
+    (UPDATE 48) - see `ObjectInstance.has_room_list` (UPDATE 77)."""
     game.current_room = 10  # outside the safe zone
     assert game.world.instances[game.world.flags[146].instance_index].ambush_eligible
     assert game.object_location(146) == 39  # its own room, not LIMBO_REMOVED
@@ -1334,7 +1340,7 @@ def test_bruckentroll_never_random_ambushes_outside_its_bridge(game):
     """Confirmed room-bound fixed encounter (UPDATE 21) - guards the
     bridge at room 25, meant to be fought there deliberately, not
     stumbled into elsewhere. Same bug shape as Steinkreuz/Tuatara above
-    - see AMBUSH_EXCLUDED_CODES."""
+    - see `ObjectInstance.has_room_list` (UPDATE 77)."""
     game.current_room = 10  # outside the safe zone
     assert game.world.instances[game.world.flags[134].instance_index].ambush_eligible
     assert game.object_location(134) == 25  # its own room, not LIMBO_REMOVED
@@ -1346,7 +1352,7 @@ def test_bruckentroll_never_random_ambushes_outside_its_bridge(game):
 def test_lindwurm_never_random_ambushes_outside_its_lair(game):
     """Confirmed room-bound dragon boss (UPDATE 21) - its own lair,
     room 109. Same bug shape as Steinkreuz/Tuatara above - see
-    AMBUSH_EXCLUDED_CODES."""
+    `ObjectInstance.has_room_list` (UPDATE 77)."""
     game.current_room = 10  # outside the safe zone
     assert game.world.instances[game.world.flags[237].instance_index].ambush_eligible
     assert game.object_location(237) == 109  # its own room, not LIMBO_REMOVED
@@ -1358,7 +1364,7 @@ def test_lindwurm_never_random_ambushes_outside_its_lair(game):
 def test_tatzelwurm_never_random_ambushes_outside_its_lair(game):
     """Confirmed room-bound dragon boss (UPDATE 21) - its own lair,
     room 104. Same bug shape as Steinkreuz/Tuatara above - see
-    AMBUSH_EXCLUDED_CODES."""
+    `ObjectInstance.has_room_list` (UPDATE 77)."""
     game.current_room = 10  # outside the safe zone
     assert game.world.instances[game.world.flags[238].instance_index].ambush_eligible
     assert game.object_location(238) == 104  # its own room, not LIMBO_REMOVED
@@ -1383,10 +1389,11 @@ def test_no_ambush_anywhere_inside_hyllok_even_on_a_guaranteed_roll(game):
 
 def test_ambush_can_fire_at_room_10_the_first_room_outside_hyllok(game):
     game.current_room = 10  # "Vor Hyllok" - confirmed the first non-safe room
-    game._location_overrides[87] = 10
-    result = game._check_ambush(rng=_FakeRng([6]))
+    # Raubfliege (36) is the only wanderer whose confirmed
+    # MONSTER_ROOM_LISTS entry includes room 10 (UPDATE 78).
+    result = game._check_ambush(rng=_FakeRng([6] * 30))
     assert result is not None
-    assert game._combat_monster_code == 87
+    assert game._combat_instance_idx == 36
 
 
 def test_go_never_triggers_an_ambush_while_moving_within_hyllok(game):
@@ -1400,12 +1407,14 @@ def test_go_never_triggers_an_ambush_while_moving_within_hyllok(game):
 
 def test_go_appends_ambush_message_on_a_successful_roll(game):
     game.current_room = 10  # "Vor Hyllok" - outside the safe zone (see SAFE_ZONE_ROOMS)
-    game._location_overrides[87] = 11  # active at the destination room
+    # instance 0 (Goblin) is always active and room 11 (the destination)
+    # is in its own confirmed MONSTER_ROOM_LISTS entry (UPDATE 78) - no
+    # override needed.
     result = game.go("N", rng=_FakeRng([6]))
     assert game.current_room == 11
     assert "taucht" in result
     assert game.WEAPON_PROMPT in result  # combat starts immediately, no separate command
-    assert game._combat_monster_code == 87
+    assert game._combat_instance_idx == 0
     assert game._combat_awaiting == "weapon"
 
 
@@ -2131,6 +2140,7 @@ def test_save_load_round_trip_includes_awaiting_picture_number(game, tmp_path):
 def test_the_starting_room_shows_its_picture_automatically_on_construction(monkeypatch):
     shown = []
     monkeypatch.setattr(pictures, "show_picture", lambda assets_dir, n: shown.append(n))
+    monkeypatch.setattr("laas_port.game.SHOW_PICTURES", True)
     from laas_port.game import DEFAULT_ASSETS_DIR, GameState
 
     fresh = GameState(DEFAULT_ASSETS_DIR)
@@ -2142,6 +2152,7 @@ def test_the_starting_room_shows_its_picture_automatically_on_construction(monke
 def test_entering_a_different_picture_room_shows_it_once(game, monkeypatch):
     shown = []
     monkeypatch.setattr(pictures, "show_picture", lambda assets_dir, n: shown.append(n))
+    monkeypatch.setattr("laas_port.game.SHOW_PICTURES", True)
     game.current_room = 4  # picture 3, confirmed different from the starting room's picture 1
     result = game._check_room_picture()
     assert result == "[Bild 3]"
@@ -2155,6 +2166,7 @@ def test_entering_a_different_picture_room_shows_it_once(game, monkeypatch):
 def test_a_room_with_no_confirmed_picture_never_fires(game, monkeypatch):
     shown = []
     monkeypatch.setattr(pictures, "show_picture", lambda assets_dir, n: shown.append(n))
+    monkeypatch.setattr("laas_port.game.SHOW_PICTURES", True)
     game.current_room = 67  # not a typo: already the "last shown" room too
     assert game._check_room_picture() is None
     game.current_room = 3  # confirmed absent from ROOM_PICTURE_TABLE
@@ -2165,6 +2177,7 @@ def test_a_room_with_no_confirmed_picture_never_fires(game, monkeypatch):
 def test_returning_to_an_earlier_picture_room_fires_again(game, monkeypatch):
     shown = []
     monkeypatch.setattr(pictures, "show_picture", lambda assets_dir, n: shown.append(n))
+    monkeypatch.setattr("laas_port.game.SHOW_PICTURES", True)
     game.current_room = 4
     game._check_room_picture()
     game.current_room = 67  # back to the starting room's own picture
@@ -2176,10 +2189,25 @@ def test_returning_to_an_earlier_picture_room_fires_again(game, monkeypatch):
 def test_execute_chain_fires_the_room_picture_check_as_a_tick(game, monkeypatch):
     shown = []
     monkeypatch.setattr(pictures, "show_picture", lambda assets_dir, n: shown.append(n))
+    monkeypatch.setattr("laas_port.game.SHOW_PICTURES", True)
     game.current_room = 4
     results = game.execute_chain("schau")
     assert "[Bild 3]" in results
     assert shown == [3]
+
+
+def test_room_picture_check_returns_its_message_even_when_display_is_disabled(game, monkeypatch):
+    """SHOW_PICTURES defaults to False (the user's own addition, so the
+    test suite doesn't pop up real windows) - the returned "[Bild N]"
+    text and `_last_shown_picture` bookkeeping still happen either way,
+    only the actual `pictures.show_picture()` call is skipped."""
+    shown = []
+    monkeypatch.setattr(pictures, "show_picture", lambda assets_dir, n: shown.append(n))
+    game.current_room = 4
+    result = game._check_room_picture()
+    assert result == "[Bild 3]"
+    assert game._last_shown_picture == 3
+    assert shown == []
 
 
 def test_save_load_round_trip_includes_last_shown_picture(game, tmp_path):
@@ -2193,3 +2221,313 @@ def test_save_load_round_trip_includes_last_shown_picture(game, tmp_path):
     fresh = GameState(DEFAULT_ASSETS_DIR)
     fresh.load_save(path)
     assert fresh._last_shown_picture == ROOM_PICTURE_TABLE[4]
+
+
+# --- DEBUG (F7) - a port utility, not a real game feature ---
+
+
+def test_debug_verb_is_reachable_via_the_parser(game):
+    assert parse("debug").verb == "DEBUG"
+    assert game.execute(parse("debug")) == game.debug_info()
+
+
+def test_debug_info_shows_the_safe_zone_note_at_hyllok(game):
+    """UPDATE 78: none of the 9 confirmed `MONSTER_ROOM_LISTS` entries
+    include any Hyllok room, so the candidate pool here is genuinely
+    empty on the real game's own data, not just this port's separate
+    `SAFE_ZONE_ROOMS` constant - a nice independent cross-check. The
+    debug view still correctly notes the safe zone suppresses the roll,
+    even though there'd be nothing to roll against here regardless."""
+    game.current_room = 67  # Hyllok village square - a confirmed safe zone
+    info = game.debug_info()
+    assert "Safe Zone: ja" in info
+    assert game._ambush_candidates() == []
+    assert "1 - 0.5^0 = 0.0%" in info
+    assert "Safe Zone - kein Ambush-Wurf" in info
+
+
+def test_debug_info_shows_the_confirmed_day_ambush_candidates_at_a_beginner_room(game):
+    """UPDATE 78: user-reported that only Goblin and Raubfliege ambush
+    by day anywhere before the bridge troll - room 11 is a real,
+    confirmed entry in BOTH their `MONSTER_ROOM_LISTS`, and in neither
+    Ork/Slime/Wildschwein/Werwolf/Kobold/Bandit's (whose own real lists
+    all sit elsewhere on the map, see the tests below) - no synthetic
+    region gate needed, the real per-monster data already matches the
+    user's report exactly."""
+    game.current_room = 11  # "Das Hügelland" - in the beginner region
+    info = game.debug_info()
+    assert "Safe Zone: nein" in info
+    assert game._ambush_candidates() == [0, 36]
+    assert "1 - 0.5^2 = 75.0%" in info
+    assert "kein Ambush-Wurf" not in info
+
+
+def test_debug_info_shows_a_single_confirmed_wanderer_near_felsklippe(game):
+    """UPDATE 78: room 106 ("Felsklippe" - the exact room the user's own
+    Ork-fight memory dump was captured in) is in Ork's confirmed
+    `MONSTER_ROOM_LISTS` entry and nobody else's - not even Goblin or
+    Raubfliege, whose own lists don't reach this far. This is the
+    mirror image of the beginner-room test above: it's not that Ork
+    shouldn't ambush at all, just not where the user was seeing it."""
+    game.current_room = 106
+    info = game.debug_info()
+    assert "Safe Zone: nein" in info
+    assert game._ambush_candidates() == [27]
+    assert "1 - 0.5^1 = 50.0%" in info
+    assert "kein Ambush-Wurf" not in info
+
+
+def test_debug_info_shows_the_confirmed_night_ambush_candidates_and_probability(game):
+    """UPDATE 74/75/76/77/78: room 17 is in both Goblin's (always
+    active) and Zombie/87's (NIGHT_ROSTER) confirmed `MONSTER_ROOM_
+    LISTS` entries - by day only Goblin is active there; at night
+    Zombie joins it, exactly matching the user's own original report
+    (Goblin by day, also Zombie by night, in the beginner area)."""
+    game.current_room = 17
+    assert game._ambush_candidates() == [0]
+    game.time_of_day = 0x80
+    game._advance_day_night_roster()
+    info = game.debug_info()
+    assert game._ambush_candidates() == [0, 2]
+    assert "1 - 0.5^2 = 75.0%" in info
+    assert "Nacht" in info
+
+
+def test_debug_info_notes_an_active_fight_suppresses_the_ambush_roll(game):
+    game.current_room = TROLL_ROOM
+    game.attack("troll")
+    info = game.debug_info()
+    assert "Kampf läuft bereits - kein Ambush-Wurf" in info
+    assert "Kampf: Bruckentroll" in info or "wartet_auf=weapon" in info
+
+
+def test_debug_info_reflects_quest_and_stat_state(game):
+    game.ansehen = 7
+    game.money = 42
+    game._farmer_quest_state = 1
+    game._tuatara_quest_stage = 3
+    game._potidan_quest_stage = 2
+    info = game.debug_info()
+    assert "Ansehen: 7  Gerfs: 42" in info
+    assert "Bauer-Quest: state=1" in info
+    assert "Tuatara-Quest: stage=3" in info
+    assert "Potidan-Quest: stage=2" in info
+
+
+# --- UPDATE 74: the ambush pool bug - the real scanner works by raw
+# instance index, not object code, and a third of real eligible
+# creatures have no object code mapped to them at all ---
+
+
+def test_ambush_candidates_include_confirmed_instance_only_day_wanderers(game):
+    """Ork/Slime/Wildschwein (PHASE0_FINDINGS.md UPDATE 49/74) are real,
+    day-only wanderers with no object code usable for ambush - each
+    checked in its own confirmed `MONSTER_ROOM_LISTS` room (UPDATE 78;
+    they no longer share a single generic "post-bridge" room, since the
+    real per-monster restriction turned out to put each in a distinct
+    zone)."""
+    for idx in DAY_ROSTER_BY_INSTANCE:
+        assert game._object_code_for_instance(idx) is None
+    game.current_room = 106  # Ork's own confirmed zone (Felsklippe)
+    assert game._ambush_candidates() == [27]
+    game.current_room = 93  # Slime's own confirmed zone
+    assert game._ambush_candidates() == [28]
+    game.current_room = 55  # shared with Werwolf (night-only) - see below
+    assert game._ambush_candidates() == [30]
+
+
+def test_ambush_candidates_switch_to_the_early_night_roster(game):
+    """Room 43 is in Kobold's (31) confirmed `MONSTER_ROOM_LISTS` entry
+    and nobody else's - active only before the Ansehen>=5 progression
+    gate unlocks the late roster."""
+    game.current_room = 43
+    assert game._ambush_candidates() == []  # inactive by day
+    game.time_of_day = 0x80
+    game._advance_day_night_roster()
+    assert game._ambush_candidates() == [31]
+
+
+def test_ambush_candidates_switch_to_the_late_night_roster_once_unlocked(game):
+    """Room 55 sits in BOTH Werwolf's (26) and Wildschwein's (30)
+    confirmed `MONSTER_ROOM_LISTS` entries (UPDATE 78) - they share a
+    territory but never coexist there: Wildschwein by day, Werwolf only
+    once the late night roster unlocks (Ansehen>=5), nothing at all
+    during an early-game night."""
+    game.current_room = 55
+    assert game._ambush_candidates() == [30]  # day: Wildschwein only
+    game.time_of_day = 0x80
+    game._advance_day_night_roster()
+    assert game._ambush_candidates() == []  # early night: neither is active
+    game.ansehen = ANSEHEN_LATE_ROSTER_THRESHOLD
+    game._advance_day_night_roster()
+    assert game._ambush_candidates() == [26]  # late night: Werwolf only
+
+
+def test_instance_32_is_an_always_active_night_wanderer_not_gated_by_ansehen(game):
+    """UPDATE 49's own table lists instance 32 (room 78, "Die
+    Magiergilde") with no early/late qualifier, unlike 31 and 26 -
+    confirmed unconditionally active every night regardless of Ansehen
+    (a real gap in the first pass at this fix, caught during a user-
+    driven follow-up investigation, UPDATE 75). Room 74 is in its own
+    confirmed `MONSTER_ROOM_LISTS` entry (UPDATE 78) and nobody else's."""
+    game.current_room = 74
+    game.time_of_day = 0x80
+    game._advance_day_night_roster()
+    assert game._instance_location(32) == 78
+    assert 32 in game._ambush_candidates()
+    game.ansehen = ANSEHEN_LATE_ROSTER_THRESHOLD
+    game._advance_day_night_roster()
+    assert game._instance_location(32) == 78
+    assert 32 in game._ambush_candidates()
+
+
+def test_room_bound_instances_without_a_room_list_are_excluded(game):
+    """25/29/35 (Höhlentroll/Treksis/Harpyie, rooms 64/101/108) sit at
+    fixed, non-299 locations - real ambush-eligible creatures, but
+    excluded from the wandering pool because `sub_C301` skips any
+    instance with no room-list pointer (UPDATE 77 - see
+    `ObjectInstance.has_room_list`), confirmed room-bound/fixed
+    encounters rather than wanderers. The room choice is arbitrary -
+    with no list at all, they're never a candidate anywhere."""
+    game.current_room = 106
+    for idx in (25, 29, 35):
+        assert game.world.instances[idx].ambush_eligible
+        assert not game.world.instances[idx].has_room_list
+        assert game._instance_location(idx) != 299
+        assert idx not in game._ambush_candidates()
+
+
+def test_raubfliege_has_a_real_room_list_and_is_not_excluded(game):
+    """UPDATE 77/78: unlike 25/29/35, Raubfliege (36) DOES have a real
+    room-list pointer - it's a genuine wanderer, not a fixed encounter,
+    matching the user's own report that it ambushes alongside Goblin in
+    the early game. An earlier hand-curated exclusion list wrongly
+    lumped it in with 25/29/35 anyway; that bug is what this guards.
+    Room 16 is Raubfliege's own static default location and, per its
+    confirmed `MONSTER_ROOM_LISTS` entry, the only wanderer valid
+    there."""
+    game.current_room = 16
+    assert game.world.instances[36].has_room_list
+    assert game._ambush_candidates() == [36]
+
+
+def test_object_code_for_instance_round_trips_for_known_creatures(game):
+    assert game._object_code_for_instance(14) == 162  # Oger
+    assert game._object_code_for_instance(24) == 244  # Skelett
+
+
+def test_instance_location_defaults_to_the_raw_static_value(game):
+    assert game._instance_location(27) == game.world.instances[27].location
+
+
+def test_move_instance_overrides_the_location(game):
+    game._move_instance(27, 5)
+    assert game._instance_location(27) == 5
+
+
+def test_ambush_starts_a_fight_against_an_instance_only_monster(game):
+    game.current_room = 55  # Wildschwein's own confirmed zone (UPDATE 78)
+    rng = _FakeRng([6])
+    result = game._check_ambush(rng=rng)
+    assert "Wildschwein" in result
+    assert game._combat_instance_idx == 30
+    assert game._combat_monster_code is None
+    assert game._instance_location(30) == 55  # moved to the ambush room
+
+
+def test_ambush_names_the_goblin_correctly_not_steinkreuz(game):
+    """UPDATE 76: instance 0 shares its combat-stat slot with object
+    105 (Steinkreuz, a landmark) purely as a raw-data quirk - a live
+    memory dump plus its own confirmed name table settled that the
+    creature is really a "Goblin". Ambushing must show that name, not
+    Steinkreuz, and must not relocate the actual Steinkreuz object."""
+    game.current_room = 11
+    rng = _FakeRng([6])  # instance 0 is first in ascending order
+    result = game._check_ambush(rng=rng)
+    assert "Goblin" in result
+    assert "Steinkreuz" not in result
+    assert game._combat_instance_idx == 0
+    assert game._combat_monster_code is None
+    assert game.object_location(105) == 26  # Steinkreuz stayed put
+
+
+def test_combat_round_resolves_against_an_instance_only_monster(game):
+    game._start_combat(code=None, instance_idx=27)
+    game._combat_monster_hp = 1
+    game._combat_answer("Schwert")
+    rng = _FakeRng([5, 1, 20, 6])
+    result = game._combat_answer("Keinen", rng=rng)
+    assert "besiegt" in result
+    assert "Ork" in result
+    assert game._combat_instance_idx is None
+    assert game.smirga_strength == game.monster_stats.strength_reward(27)
+
+
+def test_flee_works_against_an_instance_only_monster(game):
+    """Direct regression for a real bug this refactor introduced and
+    caught by manual testing, not by the suite: flee() still checked
+    the object code as its "am I fighting" signal after the rest of
+    combat moved to `_combat_instance_idx`, so fleeing an instance-only
+    monster incorrectly said "Ich kämpfe gerade nicht."."""
+    game._start_combat(code=None, instance_idx=27)
+    result = game.flee()
+    assert result == "Mit aller Mühe gelingt es uns zu fliehen!"
+    assert game._combat_instance_idx is None
+
+
+def test_attack_reprompts_instead_of_restarting_an_instance_only_fight(game):
+    game._start_combat(code=None, instance_idx=27)
+    game._combat_awaiting = "spell"
+    assert game.attack(None) == game.SPELL_PROMPT
+    assert game._combat_instance_idx == 27
+
+
+def test_save_load_round_trip_includes_instance_only_combat_state(game, tmp_path):
+    game._start_combat(code=None, instance_idx=27)
+    game._move_instance(30, 63)
+    path = tmp_path / "save.json"
+    game.save(path)
+
+    from laas_port.game import DEFAULT_ASSETS_DIR, GameState
+
+    fresh = GameState(DEFAULT_ASSETS_DIR)
+    fresh.load_save(path)
+    assert fresh._combat_instance_idx == 27
+    assert fresh._combat_monster_code is None
+    assert fresh._instance_location(30) == 63
+
+
+def test_debug_info_labels_instance_only_candidates_by_their_confirmed_names(game):
+    """UPDATE 76: 27/28/30 now have confirmed real names (INSTANCE_NAMES,
+    from the live-memory-dump name table) even though none has an
+    object code - the debug view shows the name, not "kein Code". Each
+    now lives in its own distinct confirmed zone (UPDATE 78), so they're
+    checked one room at a time rather than all at once."""
+    game.current_room = 11
+    assert "0(Goblin)" in game.debug_info()
+    game.current_room = 106
+    assert "27(Ork)" in game.debug_info()
+    game.current_room = 93
+    assert "28(Slime)" in game.debug_info()
+    game.current_room = 55
+    info = game.debug_info()
+    assert "30(Wildschwein)" in info
+    assert "kein Code" not in info
+
+
+def test_debug_info_labels_object_87_as_zombie(game):
+    """UPDATE 76: object 87 is now named via names.py (confirmed by
+    the same live-memory-dump table) - shown via its own object-code
+    path, not the INSTANCE_NAMES fallback. Room 17 is in object 87's
+    own confirmed `MONSTER_ROOM_LISTS` entry (UPDATE 78)."""
+    game.current_room = 17
+    game.time_of_day = 0x80
+    game._advance_day_night_roster()
+    info = game.debug_info()
+    assert "2(Zombie)" in info
+
+
+def test_debug_info_shows_an_instance_only_fight(game):
+    game._start_combat(code=None, instance_idx=27)
+    info = game.debug_info()
+    assert "Kampf: Ork (Instanz #27, Code=None)" in info

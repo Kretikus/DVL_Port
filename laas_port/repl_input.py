@@ -264,6 +264,9 @@ def _prompt_pynput(prompt: str, default: str) -> str:
             if key == keyboard.Key.f6:
                 print("Bild ansehen.")
                 return "BILD"
+            if key == keyboard.Key.f7:
+                print("Debug-Info.")
+                return "DEBUG"
 
             if key == keyboard.Key.enter:
                 sys.stdout.write("\n")

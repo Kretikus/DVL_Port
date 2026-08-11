@@ -328,6 +328,15 @@ OBJECT_NAMES: dict[int, list[str]] = {
     64: ["mondscheinkraut", "kraut"],
     244: ["skelett"],
 
+    # CONFIRMED VIA AN ELEVENTH METHOD (UPDATE 76): a live memory dump
+    # captured mid-fight (user-supplied, "MEMDUMP_in_fight_goblin.BIN")
+    # contained a plain-text, NUL-separated, 39-entry name table in
+    # exact instance-index order - cross-validated against every
+    # already-confirmed identity with zero mismatches. Object 87 (an
+    # already-placed but never-named `NIGHT_ROSTER` entry, `87: 23`)
+    # sits at instance index 2, which that table names "Zombie".
+    87: ["zombie"],
+
     # CONFIRMED VIA A SIXTH METHOD (direct disassembly trace of the price-
     # quote dialogue itself, not room/fan-map inference): the function at
     # flat 0xDD94 (the "make an offer" dialogue handler) contains a branch
