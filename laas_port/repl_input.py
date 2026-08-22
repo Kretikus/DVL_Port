@@ -294,6 +294,13 @@ def _prompt_pynput(prompt: str, default: str) -> str:
                 cursor = 0
             elif key == keyboard.Key.end:
                 cursor = len(buffer)
+            elif key == keyboard.Key.space:
+                # pynput reports Space as the special `Key.space`, not a
+                # `KeyCode` with `.char` like ordinary printable keys -
+                # so it fell through every branch below and was silently
+                # dropped, making it impossible to type "VERB NOUN".
+                buffer.insert(cursor, " ")
+                cursor += 1
             elif char is not None and char.isprintable():
                 buffer.insert(cursor, char)
                 cursor += 1

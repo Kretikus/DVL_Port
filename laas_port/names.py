@@ -374,6 +374,68 @@ OBJECT_NAMES: dict[int, list[str]] = {
     # past her ("Es macht euch für einige Minuten unsichtbar...benutzt es
     # nur bei Sabrina!").
     202: ["sabrina", "hexe"],
+
+    # CONFIRMED VIA A TWELFTH METHOD (UPDATE 84): user-supplied a pair
+    # of live memory dumps bracketing a single, precise action - selling
+    # the Dolch to Gultiba ("MEMDUMP_dolch_im_inventar.BIN" and
+    # "MEMDUMP_dolch_verkauft.BIN") - closing a gap this project had
+    # left explicitly unresolved since UPDATE 27 ("the real object
+    # codes for Dolch/Schwert were investigated at length and are
+    # UNRESOLVED"). Diffing the two dumps found exactly one 16-bit word
+    # anywhere in either 640KB image reading the confirmed `LIMBO_
+    # CARRIED` sentinel (150) in the "still carried" dump and something
+    # else (69) in the "sold" one. That position sits at a confirmed
+    # 48-byte stride (matching the object descriptor table's own record
+    # size) from six OTHER positions still reading 150 unchanged in
+    # both dumps - one of which is EXACTLY 21 strides away, landing
+    # precisely on object 21 (Schinken, already confirmed above via a
+    # separate method) - an internally-forced cross-check, not a
+    # coincidence: if Schinken is really 21 strides higher, the vanished
+    # position can only be object 0. Independently corroborated by
+    # count alone: this same stride formula finds exactly 7 currently-
+    # "carried" codes in the first dump and exactly 6 in the second -
+    # matching the visible 7-item/6-item inventory exactly - and object
+    # 0 has no entry at all in the generic merchant price table
+    # (`item_stats.py`), consistent with Dolch already being confirmed
+    # as Foroll's own scripted, non-catalog starter-weapon bundle item
+    # rather than a normal shop good.
+    0: ["dolch"],
+
+    # CONFIRMED VIA A THIRTEENTH METHOD (UPDATE 85): the natural follow-
+    # up to UPDATE 84 - user supplied a THIRD memory dump
+    # ("MEMDUMP_schwert_verkauft.BIN"), bracketing "verkaufe schwert"
+    # against the previous update's own "dolch_verkauft" dump as the
+    # "before" state (Schwert still carried, 31 Gerfs). Identical
+    # method, identical result shape: exactly one 16-bit word anywhere
+    # in either 640KB image reads 150 (`LIMBO_CARRIED`) before and 69
+    # (the same "sold to Gultiba" sentinel UPDATE 84 already saw for
+    # Dolch) after - at file offset 0x2bbc3, exactly one 48-byte stride
+    # above Dolch's own confirmed position (0x2bb93) - i.e. object code
+    # 1, precisely the adjacent-pair guess UPDATE 84 flagged as
+    # "tempting" but left unconfirmed. Money moved 31 -> 46 (+15 Gerfs,
+    # Gultiba's own buy-back price for Schwert specifically), and the
+    # same stride formula finds exactly 6 "carried" codes in the
+    # "before" dump dropping to exactly 5 in the "after" one - matching
+    # the screenshot's own visible 6-item/5-item inventory exactly.
+    # Object 1 also has no entry at all in the generic merchant price
+    # table, same as Dolch/0 - both starter weapons are Foroll's own
+    # scripted, non-catalog bundle, never part of the regular shop
+    # catalog.
+    1: ["schwert"],
+
+    # CONFIRMED VIA A FOURTEENTH METHOD (UPDATE 87): direct disassembly
+    # of room 88's own handler (Gultiba's bedroom) - the four scripted
+    # fixtures of the affair scene, identified by which object code
+    # each of the room's own `si` (direct-object) comparisons targets,
+    # cross-checked against their own STORY text (message 1052
+    # describes "Die Frau"/the wife, 1053/2269 "Der Mann"/the lover,
+    # 1049 the "Himmelbett", 1050 the "Fenster"). None are instance-
+    # tracked (pure scenery, not combat) - see game.py's GULTIBA_*
+    # constants for the full scene.
+    186: ["frau", "gultibas frau"],
+    145: ["mann", "liebhaber"],
+    119: ["bett", "himmelbett"],
+    9: ["fenster"],
 }
 
 

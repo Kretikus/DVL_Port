@@ -11,6 +11,7 @@ from laas_port.game import (
     ANSEHEN_LATE_ROSTER_THRESHOLD,
     DAY_ROSTER,
     DAY_ROSTER_BY_INSTANCE,
+    DOLCH_CODE,
     FANATIC_AMBUSH_ROOM,
     FARMER_CODE,
     FARMER_QUEST_SCHINKEN_CODE,
@@ -32,6 +33,7 @@ from laas_port.game import (
     SALAMI_ROOM,
     SCARABAEUS_CODE,
     SCARABAEUS_DEPLETED_CODE,
+    SCHWERT_CODE,
     SKELETT_CODE,
     TUATARA_BOATHOUSE_ROOM,
     TUATARA_BOUNTY_GERFS,
@@ -120,8 +122,11 @@ def test_inventory_empty_message(game):
     # for non-instance items - the bundled save's player genuinely
     # starts out carrying the Axt (171), previously hidden by the bug
     # this fixed. Move it out of LIMBO_CARRIED to test the true empty case.
+    # The `game` fixture also grants Dolch/Schwert by default since
+    # UPDATE 84/85 - remove those too for a genuinely empty inventory.
     game.current_room = 67
     game._location_overrides[171] = 67
+    _remove_starter_weapons(game)
     assert "nichts" in game.inventory()
 
 
@@ -140,6 +145,7 @@ def test_inventory_matches_the_confirmed_f4_screenshot_exactly(game):
     "normale Kleidung" lines (messages 1884/1885), exact text match."""
     game.current_room = 67
     game._location_overrides[171] = 67  # move the Axt out of carried, matching the screenshot's moment
+    _remove_starter_weapons(game)  # the fixture also grants Dolch/Schwert by default (UPDATE 84/85)
     assert game.inventory() == (
         "Leider haben wir nichts.\n\n"
         "Smirga trägt normale Kleidung.\n"
@@ -191,8 +197,11 @@ def test_unlock_requires_correct_room_and_key(game):
 
 def test_unlock_then_open_then_close_then_lock_round_trip(game):
     game.current_room = 0x55
-    # give ourselves the key (object code 1) by placing it in inventory
-    game._location_overrides[1] = LIMBO_CARRIED
+    # the key (object code 1 - confirmed as Schwert, UPDATE 84/85) is
+    # already carried via the `game` fixture's own default; UNLOCK_GATE_
+    # OBJECT (0, confirmed as Dolch) must NOT be carried though, so
+    # explicitly move it out of the way (the fixture grants it too).
+    game._location_overrides.pop(DOLCH_CODE, None)
     result = game.unlock_door("N", "1")
     assert "auf" in result
     assert game.get_door_state(0x55, 0) == DOOR_CLOSED
@@ -206,6 +215,130 @@ def test_unlock_then_open_then_close_then_lock_round_trip(game):
     dest = game.world.room(0x55).exits[0].dest_room
     reciprocal_slot = (0 + 4) % 8
     assert game.get_door_state(dest, reciprocal_slot) == DOOR_LOCKED
+
+
+# --- Gultiba's bedroom (room 88) - a full scripted encounter behind the
+# room-85 door above, confirmed via direct disassembly of the room's own
+# handler (PHASE0_FINDINGS.md UPDATE 87) ---
+
+
+def test_room_88_first_visit_shows_the_affair_scene_once(game):
+    game.current_room = 88
+    first = game.look()
+    assert "Ehebruch nennt man das glaube ich" in first
+    second = game.look()
+    assert "Ehebruch" not in second
+    assert "Wir stehen in Gultibas Schlafzimmer" in second
+
+
+def test_room_88_examine_fixtures(game):
+    game.current_room = 88
+    assert "Träne ihre Wange" in game.examine("frau")
+    assert "zu aufgeregt" in game.examine("mann")
+    assert "Himmelbett" in game.examine("bett")
+    assert "verglastes Fenster" in game.examine("fenster")
+
+
+def test_room_88_attacking_the_lover_kills_him_and_costs_the_key(game):
+    """Confirmed scripted outcome: Ansehen drops, the Dolch (the
+    UNLOCK_GATE_OBJECT, not the Schwert key itself) is lost to true
+    limbo, and the door relocks behind you - matching message 2311's
+    own "...vergessen sogar den Schlüssel"."""
+    game.current_room = 88
+    ansehen_before = game.ansehen
+    result = game.attack("mann")
+    assert "verzerrt er plötzlich das Gesicht" in result
+    assert "tot ist" in result
+    assert game.ansehen == ansehen_before - 2
+    assert DOLCH_CODE not in game.objects_carried()
+    assert game.get_door_state(0x55, 0) == DOOR_LOCKED
+    dest = game.world.room(0x55).exits[0].dest_room
+    assert game.get_door_state(dest, (0 + 4) % 8) == DOOR_LOCKED
+    # doesn't start a real fight
+    assert game._combat_instance_idx is None
+
+
+def test_room_88_lover_is_not_attackable_elsewhere(game):
+    """The lover isn't instance-tracked - he's pure scripted scenery for
+    this one room, not a fightable monster anywhere else."""
+    game.current_room = TROLL_ROOM
+    result = game.attack("mann")
+    assert "sehe ich hier nicht" in result or "lässt sich nicht bekämpfen" in result
+
+
+def test_room_88_releasing_the_lover_lets_him_go_and_still_costs_the_key(game):
+    """Confirmed peaceful resolution (PHASE0_FINDINGS.md UPDATE 88):
+    Ansehen rises instead of falling, but the Dolch is still lost and
+    the door still relocks - the same consequence shape as the ATTACK
+    outcome, just the opposite Ansehen sign and a different message."""
+    game.current_room = 88
+    ansehen_before = game.ansehen
+    result = game.release("mann gehen")
+    assert "Der Mann nimmt seine Beine unter die Arme und rennt davon" in result
+    assert game.ansehen == ansehen_before + 2
+    assert DOLCH_CODE not in game.objects_carried()
+    assert game.get_door_state(0x55, 0) == DOOR_LOCKED
+
+
+def test_room_88_release_also_accepts_bare_mann_without_gehen(game):
+    """No "gehen" required - just the noun. (Pronouns like "ihn" aren't
+    resolved at all - this port has no generic pronoun mechanism, only
+    the exact confirmed noun "mann"/"liebhaber".)"""
+    game.current_room = 88
+    result = game.release("mann")
+    assert "rennt davon" in result
+
+
+def test_room_88_release_elsewhere_or_wrong_noun_is_refused(game):
+    game.current_room = TROLL_ROOM
+    assert "loslassen" in game.release("mann gehen")
+    game.current_room = 88
+    assert "loslassen" in game.release("frau")
+
+
+def test_room_88_encounter_only_resolves_once_either_way(game):
+    """Attacking after already releasing (or vice versa) doesn't fire
+    the scene a second time - `_gultiba_bedroom_resolved` gates both
+    outcomes together, not just each one against itself."""
+    game.current_room = 88
+    game.release("mann gehen")
+    ansehen_after_release = game.ansehen
+    attack_result = game.attack("mann")
+    assert "sehe ich hier nicht" in attack_result or "lässt sich nicht bekämpfen" in attack_result
+    assert game.ansehen == ansehen_after_release  # unchanged - no second resolution
+
+    from laas_port.game import DEFAULT_ASSETS_DIR, GameState
+
+    fresh_game = GameState(DEFAULT_ASSETS_DIR)
+    fresh_game.current_room = 88
+    fresh_game.attack("mann")
+    ansehen_after_attack = fresh_game.ansehen
+    release_result = fresh_game.release("mann gehen")
+    assert "loslassen" in release_result
+    assert fresh_game.ansehen == ansehen_after_attack  # unchanged
+
+
+def test_room_88_encounter_resolution_persists_across_save_load(game, tmp_path):
+    game.current_room = 88
+    game.release("mann gehen")
+    path = tmp_path / "save.json"
+    game.save(path)
+
+    from laas_port.game import DEFAULT_ASSETS_DIR, GameState
+
+    fresh = GameState(DEFAULT_ASSETS_DIR)
+    fresh.load_save(path)
+    assert fresh._gultiba_bedroom_resolved is True
+
+
+def test_lass_mann_gehen_parses_and_executes_end_to_end(game):
+    """Exact phrasing from the lover's own dialogue ("Bitte, laßt mich
+    gehen!") - full parse()/execute() path, not just the direct
+    release() call the other tests above use."""
+    game.current_room = 88
+    result = game.execute(parse("lass mann gehen"))
+    assert "rennt davon" in result
+    assert game._gultiba_bedroom_resolved is True
 
 
 # --- save/load ---
@@ -405,7 +538,86 @@ def test_room_3_first_visit_shows_scripted_scene_once(game):
     assert "Nordwand der Halle" in second  # the plain standing text (message 126)
 
 
+# --- room 1's breakfast-scene first visit (the ORIGINAL flagged gap this
+# whole ROOM_FIRST_VISIT_MESSAGE mechanism started from - UPDATE 89) ---
+
+
+def test_room_1_first_visit_appends_breakfast_scene_once(game):
+    game.current_room = 1
+    first = game.look()
+    assert "Setzt euch" in first
+    assert "Aszhantis Elternhaus" in first or "mein Elternhaus" in first
+    second = game.look()
+    assert "Setzt euch" not in second
+
+
+# --- Mygra's first-visit greeting scene (room 4, "Beim Scharlatan" - see
+# ROOM_FIRST_VISIT_MESSAGE's room-4 entry, confirmed via room_handler_
+# by_address.py plus two user-supplied DOSBox screenshots of a first-ever
+# visit, paginated across a "(Taste)" prompt) ---
+
+
+def test_room_4_first_visit_shows_mygras_full_greeting_once(game):
+    """User-reported: the port's first visit to Mygra's shop was missing
+    almost the whole scene (entry narration + greeting + monologue),
+    including its exact closing two sentences ("Als er seinen Monolog
+    endlich beendet hat...'Ja was wollt ihr denn?'...") - confirmed
+    against a real screenshot, not paraphrased."""
+    game.current_room = 4
+    first = game.look()
+    assert "Vorsichtig betreten wir das Haus von Mygra" in first
+    assert "Kann ich euch irgendwie behilflich sein" in first
+    assert "Als er seinen Monolog endlich beendet hat" in first
+    assert "'Ja was wollt ihr denn?'" in first
+    second = game.look()
+    assert "Vorsichtig betreten wir das Haus von Mygra" not in second
+    assert "Wir stehen in Mygras Haus" in second  # the plain standing text (message 139)
+
+
+def test_room_4_first_visit_greeting_is_narrator_dependent(game):
+    """Message 138's greeting clause is narrator-dependent (136 for
+    Aszhanti narrating, first-person "grüße ich ihn"; 137 for Smirga
+    narrating, third-person "grüßt ihn Aszhanti") - same (smirga_msg,
+    aszhanti_msg) tuple convention as ROOM_LOOK_MESSAGE's room-1 entry,
+    now also supported by first_visit_text(). Two separate GameStates
+    (rather than resetting `_visited_rooms` mid-test) keep this a clean
+    first-visit check for each narrator."""
+    game.current_room = 4
+    aszhanti_text = game.look()
+    assert "grüße ich ihn freundlich" in aszhanti_text
+
+    from laas_port.game import GameState
+
+    smirga_game = GameState(game.assets_dir)
+    smirga_game.narrator = Character.SMIRGA
+    smirga_game.current_room = 4
+    smirga_text = smirga_game.look()
+    assert "grüßt ihn Aszhanti freundlich" in smirga_text
+
+
+def test_room_4_standing_text_includes_the_drachenblut_continuation(game):
+    """User-reported: the standing (repeat-visit) text for room 4 was
+    missing message 155's continuation, confirmed via a real screenshot
+    to appear right after message 139, before "Mygra ist hier.\""""
+    game.current_room = 4
+    game.look()  # consume the first-visit scene
+    second = game.look()
+    assert "Unschwer identifiziere ich es als Drachenblut" in second
+
+
+def _remove_starter_weapons(game):
+    """Undoes the `game` fixture's own default (starter weapons already
+    bought and carried) for the handful of tests that specifically need
+    to start from Foroll's unbought/unowned state - resetting only
+    `_bought_starter_weapons` is no longer enough since UPDATE 84/85
+    made the weapon-possession check read real inventory."""
+    game._bought_starter_weapons = False
+    game._location_overrides.pop(DOLCH_CODE, None)
+    game._location_overrides.pop(SCHWERT_CODE, None)
+
+
 def test_buy_starter_weapons_requires_exact_price(game):
+    _remove_starter_weapons(game)
     game.current_room = 3
     game.money = 6
     result = game.buy_starter_weapons()
@@ -415,12 +627,15 @@ def test_buy_starter_weapons_requires_exact_price(game):
 
 
 def test_buy_starter_weapons_succeeds_and_is_one_time(game):
+    _remove_starter_weapons(game)
     game.current_room = 3
     game.money = 7
     result = game.buy_starter_weapons()
     assert "Dolch und Schwert" in result
     assert game.money == 0
     assert game._bought_starter_weapons is True
+    assert DOLCH_CODE in game.objects_carried()  # UPDATE 84/85: real objects, not just the flag
+    assert SCHWERT_CODE in game.objects_carried()
     # buying again does nothing, even with plenty of money
     game.money = 100
     second = game.buy_starter_weapons()
@@ -429,6 +644,7 @@ def test_buy_starter_weapons_succeeds_and_is_one_time(game):
 
 
 def test_buy_waffen_routes_to_foroll_when_present(game):
+    _remove_starter_weapons(game)
     game.current_room = 3
     game.money = 7
     result = game.buy("waffen")
@@ -448,6 +664,7 @@ def test_buy_starter_weapons_only_works_at_forolls_forge(game):
 
 
 def test_foroll_warns_after_lingering_then_kicks_you_out(game):
+    _remove_starter_weapons(game)
     game.current_room = 3
     for _ in range(4):
         result = game.execute_chain("schau")
@@ -861,6 +1078,42 @@ def test_attack_immediately_prompts_for_weapon_not_a_resolved_round(game):
     assert game._combat_monster_hp == 1  # fight started, no round resolved yet
 
 
+# --- weapon possession check at the weapon prompt (UPDATE 83) ---
+
+
+def test_weapon_prompt_refuses_dolch_or_schwert_without_owning_them(game):
+    _remove_starter_weapons(game)
+    game.current_room = TROLL_ROOM
+    game.attack("troll")
+    result = game._combat_answer("Schwert")
+    assert "kein Schwert" in result
+    assert game.WEAPON_PROMPT in result
+    assert game._combat_awaiting == "weapon"  # re-prompted, not advanced to spell
+
+    dolch_result = game._combat_answer("Dolch")
+    assert "keinen Dolch" in dolch_result
+    assert game._combat_awaiting == "weapon"
+
+
+def test_weapon_prompt_allows_hande_without_owning_a_weapon(game):
+    """Bare hands need no possession check - unaffected by real
+    inventory state."""
+    _remove_starter_weapons(game)
+    game.current_room = TROLL_ROOM
+    game.attack("troll")
+    result = game._combat_answer("Hände")
+    assert result == game.SPELL_PROMPT
+    assert game._combat_awaiting == "spell"
+
+
+def test_weapon_prompt_allows_schwert_once_owned(game):
+    game.current_room = TROLL_ROOM  # fixture default: _bought_starter_weapons already True
+    game.attack("troll")
+    result = game._combat_answer("Schwert")
+    assert result == game.SPELL_PROMPT
+    assert game._combat_awaiting == "spell"
+
+
 def test_combat_answer_sequence_asks_weapon_then_spell_then_resolves(game):
     game.current_room = TROLL_ROOM
     game.attack("troll")
@@ -890,6 +1143,7 @@ def test_fight_continues_with_an_automatic_reprompt_for_next_round(game):
 def test_levi_bonus_strike_can_finish_off_a_monster_that_survives_melee(game):
     """Integration test for combat.resolve_levi() wired into the real
     Q&A flow - see PHASE0_FINDINGS.md UPDATE 34."""
+    game.aszhanti_known_spells = 5  # UPDATE 83 gates casting on this
     game.current_room = TROLL_ROOM
     game.attack("troll")
     game._combat_answer("Schwert")
@@ -910,6 +1164,7 @@ def test_febr_lands_its_rare_bonus_hit_against_the_oger(game):
     Q&A flow - see PHASE0_FINDINGS.md UPDATE 38. FEBR only ever deals
     damage against one specific monster, the Oger (object 162)."""
     OGER_CODE = 162
+    game.aszhanti_known_spells = 5  # UPDATE 83 gates casting on this
     game.current_room = 1
     game._location_overrides[OGER_CODE] = 1  # place the (normally off-stage) Oger here
     game.attack("oger")
@@ -926,6 +1181,7 @@ def test_febr_lands_its_rare_bonus_hit_against_the_oger(game):
 
 
 def test_febr_is_flavor_only_against_a_different_monster(game):
+    game.aszhanti_known_spells = 5  # UPDATE 83 gates casting on this
     game.current_room = TROLL_ROOM  # the bridge troll (134) is NOT the Oger
     game.attack("troll")
     game._combat_answer("Schwert")
@@ -951,9 +1207,43 @@ def test_unrecognized_spell_name_has_no_effect(game):
     assert game._combat_monster_hp == 1  # unchanged by the unrecognized spell name
 
 
+# --- spell-known check at the spell prompt (UPDATE 83) ---
+
+
+def test_casting_an_unlearned_real_spell_name_has_no_effect(game):
+    """LEVI/FEBR are Spell I/II (SPELL_LEARN_ORDER) - a fresh game
+    (`aszhanti_known_spells == 0`, before ever visiting Mygra) hasn't
+    learned either yet, so casting LEVI has no effect, same as typing
+    any other unrecognized text (see test_unrecognized_spell_name_has_
+    no_effect just above)."""
+    assert game.aszhanti_known_spells == 0
+    game.current_room = TROLL_ROOM
+    game.attack("troll")
+    game._combat_answer("Schwert")
+    rng = _FakeRng([5, 1, 2, 2, 2, 1])  # melee only - troll survives (misses)
+    result = game._combat_answer("LEVI", rng=rng)
+    assert "verwirrt" not in result
+    assert game._combat_monster_hp == 1  # unchanged - LEVI not learned yet
+
+
+def test_learning_only_levi_and_febr_still_blocks_kubl(game):
+    """Spell III (KUBL) requires aszhanti_known_spells >= 3 - having
+    learned just the first two (Mygra's own confirmed event) isn't
+    enough."""
+    game.aszhanti_known_spells = 2  # LEVI + FEBR, exactly what Mygra teaches
+    game.current_room = TROLL_ROOM
+    game.attack("troll")
+    game._combat_answer("Schwert")
+    rng = _FakeRng([5, 1, 2, 2, 2, 1])
+    result = game._combat_answer("KUBL", rng=rng)
+    assert "Kubl" not in result
+    assert game._combat_monster_hp == 1  # unchanged - KUBL not learned yet
+
+
 def test_kubl_deals_direct_damage_and_can_finish_off_a_monster(game):
     """Integration test for combat.resolve_kubl() wired into the real
     Q&A flow - see PHASE0_FINDINGS.md UPDATE 36."""
+    game.aszhanti_known_spells = 5  # UPDATE 83 gates casting on this
     game.current_room = TROLL_ROOM
     game.attack("troll")
     game._combat_answer("Schwert")
@@ -973,6 +1263,7 @@ def test_unsi_and_topa_are_pure_status_effects_with_no_damage(game):
     """Integration test for combat.resolve_unsi()/resolve_topa() wired
     into the real Q&A flow - see PHASE0_FINDINGS.md UPDATE 37. Neither
     touches monster hp at all, confirmed via the real disassembly."""
+    game.aszhanti_known_spells = 5  # UPDATE 83 gates casting on this
     game.current_room = TROLL_ROOM
     game.aszhanti_health = 1000  # generous - this test isn't about survival
     game.attack("troll")
@@ -1170,6 +1461,71 @@ def test_give_to_someone_who_cannot_use_it_is_refused(game):
     result = game.give("#182 har")
     assert "kann damit nichts anfangen" in result
     assert game.scarabaeus_charge == 0
+
+
+# --- give money to Mygra for spell lessons (see MYGRA_SPELL_TEACHING_*,
+# user-supplied real DOSBox screenshot "lerne_spells.png") ---
+
+
+def test_give_money_to_mygra_requires_the_flat_price(game):
+    game.current_room = 4
+    game.money = 2
+    result = game.give("geld")
+    assert "3 Gerfs" in result
+    assert game.money == 2
+    assert game.aszhanti_known_spells == 0
+
+
+def test_give_money_to_mygra_teaches_levi_and_febr_and_is_one_time(game):
+    """Spell I=LEVI, II=FEBR (SPELL_LEARN_ORDER, PHASE0_FINDINGS.md
+    UPDATE 82) - NOT KUBL, which is Spell III and only learnable at the
+    Magiergilde (user-corrected; an earlier pass of this feature
+    wrongly assumed the combat SPELL_PROMPT's own menu order - LEVI,
+    KUBL, FEBR, ... - also matched the Spell I-V progression order)."""
+    game.current_room = 4
+    game.money = 100  # any amount - only the flat price is ever taken
+    result = game.give("geld")
+    assert "LEVI und FEBR" in result
+    assert "3 Gerfs" in result
+    assert game.money == 97
+    assert game.aszhanti_known_spells == 2
+    # a second gift doesn't teach anything more or charge again
+    second = game.give("geld")
+    assert "LEVI" not in second
+    assert game.money == 97
+
+
+def test_give_money_without_mygra_present_is_refused(game):
+    game.current_room = 67  # Hyllok village square - Mygra isn't here
+    game.money = 100
+    result = game.give("geld")
+    assert "geben" in result
+    assert game.money == 100
+    assert game.aszhanti_known_spells == 0
+
+
+def test_gebe_geld_parses_and_executes_end_to_end(game):
+    """Exact interaction from the screenshot: typing "gebe geld" (no
+    explicit recipient) while Mygra is present."""
+    game.current_room = 4
+    game.money = 3
+    result = game.execute(parse("gebe geld"))
+    assert "LEVI und FEBR" in result
+    assert game.aszhanti_known_spells == 2
+
+
+def test_save_load_round_trip_includes_known_spells(game, tmp_path):
+    game.current_room = 4
+    game.money = 3
+    game.give("geld")
+    path = tmp_path / "save.json"
+    game.save(path)
+
+    from laas_port.game import DEFAULT_ASSETS_DIR, GameState
+
+    fresh = GameState(DEFAULT_ASSETS_DIR)
+    fresh.load_save(path)
+    assert fresh.aszhanti_known_spells == 2
 
 
 def test_scarabaeus_recharge_completes_after_ten_turns(game):
@@ -2307,11 +2663,13 @@ def test_debug_info_reflects_quest_and_stat_state(game):
     game._farmer_quest_state = 1
     game._tuatara_quest_stage = 3
     game._potidan_quest_stage = 2
+    game.aszhanti_known_spells = 2
     info = game.debug_info()
     assert "Ansehen: 7  Gerfs: 42" in info
     assert "Bauer-Quest: state=1" in info
     assert "Tuatara-Quest: stage=3" in info
     assert "Potidan-Quest: stage=2" in info
+    assert "Bekannte Sprüche (Asz): 2" in info
 
 
 # --- UPDATE 74: the ambush pool bug - the real scanner works by raw

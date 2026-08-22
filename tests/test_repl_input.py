@@ -123,6 +123,28 @@ def test_pynput_editor_supports_backspace_and_appending(monkeypatch):
     assert result == "schwild"
 
 
+def test_pynput_editor_supports_the_space_bar(monkeypatch):
+    """Regression: pynput reports Space as the special `Key.space`, not
+    a `KeyCode` with `.char` like ordinary printable keys - it used to
+    fall through every branch in `_prompt_pynput` and get silently
+    dropped, making it impossible to type "VERB NOUN" commands at all
+    (user-reported)."""
+    _always_foreground(monkeypatch)
+    keys = [
+        keyboard.KeyCode.from_char("n"),
+        keyboard.KeyCode.from_char("i"),
+        keyboard.KeyCode.from_char("m"),
+        keyboard.Key.space,
+        keyboard.KeyCode.from_char("s"),
+        keyboard.KeyCode.from_char("c"),
+        keyboard.KeyCode.from_char("h"),
+        keyboard.Key.enter,
+    ]
+    monkeypatch.setattr("pynput.keyboard.Listener", _fake_listener_factory(keys))
+    result = repl_input._prompt_pynput("> ", "")
+    assert result == "nim sch"
+
+
 def test_pynput_editor_supports_left_arrow_and_insert(monkeypatch):
     _always_foreground(monkeypatch)
     # default "schwert", Left arrow x4 (cursor before "wert"), insert "X"

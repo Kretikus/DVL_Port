@@ -32,6 +32,25 @@ Record layout (see the `laas` analysis project's PHASE0_FINDINGS.md,
                 fan-authored confirmation either) - not implementing a
                 container/PUT mechanic on this basis.
 
+                ONE SPECIFIC, narrow interpretation of this same field IS
+                confirmed though (PHASE0_FINDINGS.md UPDATE 80, tracing
+                room 4's own "show the Drachenblut sentence?" check all
+                the way to the byte level): a shared helper (flat 0xABB0)
+                called with (object_code, room), for any object whose
+                `handler_selector`'s low byte is 9, reads this same +0xA+
+                span as an array of up to ~19 u16 ROOM numbers and
+                searches it for a match - Mygra (object 35)'s own tail
+                decodes this way to exactly `[4]`, her own confirmed
+                room, and nothing else. This doesn't contradict object
+                3's own container-list reading above - the raw field
+                appears to be genuinely overloaded, its meaning decided
+                by whichever code actually consumes it (a container
+                lookup vs. this room-presence helper), not a single
+                fixed schema recoverable from the bytes alone. Not
+                generalized into a public API here - confirmed for this
+                one narrow call site, not proven for the other ~45
+                objects sharing that same selector-byte value.
+
 The `+0x06` offsets are monotonically increasing and 250-way distinct
 across the table (by *offset*, not by object code - object N's span
 neighbor in the text is usually NOT object N+1), so object i's text is

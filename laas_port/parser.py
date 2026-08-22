@@ -107,6 +107,15 @@ VERB_ALIASES = {
     # confirmed real interaction it unlocks - see game.py's FARMER_*
     # constants/helfen() (PHASE0_FINDINGS.md UPDATE 68).
     "hilf": "HELFEN", "helfe": "HELFEN", "helfen": "HELFEN",
+    # LASS - a PORT UTILITY verb name, same caveat as ATTACK/HELFEN
+    # above: the real typed word was never confirmed against a
+    # screenshot, only inferred from a disassembly trace (verb 0x67
+    # aliases to internal verb 0x40 when its argument is object code 2,
+    # which room 88's own handler then checks for - PHASE0_FINDINGS.md
+    # UPDATE 88). "lass" fits both the alias's own behavior and the
+    # scene's own dialogue ("Bitte, laßt mich gehen!"), but isn't
+    # independently confirmed as the exact word.
+    "lass": "LASS", "lasse": "LASS",
     # The Tuatara bounty/diplomacy quest's own PORT UTILITY verbs (real
     # typed words unconfirmed, same caveat as ATTACK/HELFEN above) -
     # see game.py's TUATARA_* constants (PHASE0_FINDINGS.md UPDATE 69).
@@ -131,6 +140,7 @@ VERB_ALIASES = {
     # only so a player/tester can view both narrator text variants.
     "character": "CHARACTER", "charakter": "CHARACTER", "wechsel": "CHARACTER",
     "help": "HELP", "hilfe": "HELP", "?": "HELP",
+    "cheat": "CHEAT"
 }
 
 # "verschließe"/"schließe" are ambiguous with LOCK/CLOSE in German depending on

@@ -141,11 +141,41 @@ def _exit_phrase(room_number: int, direction: str) -> str:
         return label
     return f"nach {label}"
 
+# Dolch/Schwert's real object codes (PHASE0_FINDINGS.md UPDATE 84/85) -
+# a gap this project had left explicitly unresolved for a long time
+# (combat.py's own docstring: "the real object codes for Dolch/Schwert
+# were investigated at length and are UNRESOLVED"). Closed via two
+# user-supplied pairs of live memory dumps, each bracketing a single
+# "verkaufe <weapon>" action at Gultibas Laden: the confirmed
+# `LIMBO_CARRIED` sentinel (150) disappears from exactly one file
+# position in each pair, cross-validated by a forced 48-byte-stride
+# relationship to Schinken's independently-confirmed code (21) and an
+# exact carried-item-count match (7->6 for Dolch, 6->5 for Schwert).
+# Neither code has any entry in the generic merchant price table
+# (item_stats.py) - consistent with both being Foroll's own scripted,
+# non-catalog bundle rather than regular shop goods; their own real
+# SELL prices (5 and 15 Gerfs respectively, confirmed via the same two
+# screenshots) are hardcoded in `sell()` (STARTER_WEAPON_SELL_PRICES,
+# below) for the same reason. Defined here, ahead of the door-verb
+# constants right below, since KEY_OBJECT_CODE/UNLOCK_GATE_OBJECT turn
+# out to be these same two codes (see that block's own comment).
+DOLCH_CODE = 0
+SCHWERT_CODE = 1
+
 # Door-verb constants, all confirmed via `sub_EEC0`/funcs 7-10 - see the
-# `laas` analysis project's decompiled/seg005_batch5.md. Object identities
-# for the key (code 1) and the UNLOCK gate object (code 0), and room 0x55,
-# are not yet known by name (see room_text.py/names.py) - referenced by
-# raw code/number here, matching how little is confirmed about them.
+# `laas` analysis project's decompiled/seg005_batch5.md. Room 0x55 itself
+# is still not known by name (see room_text.py). The key (code 1) and
+# the UNLOCK gate object (code 0) WERE "not yet known by name" when this
+# was first confirmed - PHASE0_FINDINGS.md UPDATE 84/85 resolved both
+# independently (via live memory dumps bracketing Foroll's starter
+# weapons being sold), and they turn out to be Dolch (0) and Schwert
+# (1) - the same two codes, cross-confirmed by two completely different
+# methods (disassembly here, memory-dump differencing there). So this
+# puzzle door's real "key" is genuinely the Schwert, and it can only be
+# unlocked while NOT carrying the Dolch - an odd-sounding but
+# textually-confirmed pair of requirements (`word_b3f4==1` to proceed
+# at all, and object `0`/`0x96` (LIMBO_CARRIED) presence check failing
+# unlock outright), not a coincidence introduced by this port.
 #
 # CONFIRMED against the real shipped data (not just the disassembly):
 # room 0x55's own exit slot 0 (north) is genuinely pre-locked
@@ -153,9 +183,68 @@ def _exit_phrase(room_number: int, direction: str) -> str:
 # in the game does a locked door happen to sit in room 0x55 - this really
 # is the one deliberate lock/unlock puzzle door the reverse-engineering
 # notes predicted.
-KEY_OBJECT_CODE = 1
-UNLOCK_GATE_OBJECT = 0
+KEY_OBJECT_CODE = SCHWERT_CODE
+UNLOCK_GATE_OBJECT = DOLCH_CODE
 UNLOCK_ROOM = 0x55  # 85
+
+# Gultiba's bedroom (room 88, behind the room-85 door above) - a full
+# scripted encounter, confirmed via direct disassembly of the room's
+# own handler (PHASE0_FINDINGS.md UPDATE 87): walking in catches
+# Gultiba's wife and her lover together ("Ehebruch nennt man das
+# glaube ich!" - see room_text.py's ROOM_FIRST_VISIT_MESSAGE). Object
+# codes for the 4 scripted fixtures (none instance-tracked - this is
+# pure scenery, not combat), and the EXAMINE text confirmed for each,
+# traced from the handler's own `si` (direct-object) comparisons:
+GULTIBA_WIFE_CODE = 186
+GULTIBA_LOVER_CODE = 145
+GULTIBA_BEDROOM_BED_CODE = 119
+GULTIBA_BEDROOM_WINDOW_CODE = 9
+GULTIBA_BEDROOM_ROOM = 88
+GULTIBA_BEDROOM_EXAMINE = {
+    GULTIBA_WIFE_CODE: 1052,
+    # Confirmed via verb code (EXAMINE is verb 0x32 - PHASE0_FINDINGS.md
+    # UPDATE 8) explicitly dispatching to THIS message for the lover,
+    # not message 1053 ("Der Mann ist ein Schmächtling...") - that text
+    # belongs to a SEPARATE, unconfirmed di==1 sub-dispatch this port
+    # doesn't model (see room 88's own disassembly notes, UPDATE 87).
+    GULTIBA_LOVER_CODE: 2269,
+    GULTIBA_BEDROOM_BED_CODE: 1049,
+    GULTIBA_BEDROOM_WINDOW_CODE: 1050,
+}
+# Both of the scene's confirmed resolutions share the same consequence
+# shape (Ansehen shift, the Dolch lost to true limbo, the door relocks
+# behind you) - see `_resolve_gultibas_bedroom_encounter()`. Only one
+# can ever fire (`_gultiba_bedroom_resolved` gates both):
+#
+# ATTACKing the lover (verb 0x24, already-confirmed as ATTACK, UPDATE
+# 29): he suffers a fatal heart attack, Ansehen drops 2 - confirmed via
+# the SAME `sub_AB36` object-relocation call this room's handler makes
+# for this outcome, matching message 2311's own text ("...vergessen
+# sogar den Schlüssel" - the real Schwert/KEY_OBJECT_CODE is untouched;
+# it's the Dolch, the door's own UNLOCK gate object, that's lost).
+#
+# Letting him go peacefully (message 1058, Ansehen +2): PHASE0_
+# FINDINGS.md UPDATE 88 traced `word_b770`'s real setter - a parser-
+# level verb-aliasing routine (flat 0x5d44) that rewrites typed verb
+# 0x67 to internal verb 0x40 (exactly what room 88 checks) whenever its
+# argument is object code 2, also setting word_b770=1 as a side effect.
+# Ported as a new "LASS" verb (parser.py) - a PORT UTILITY name, same
+# caveat as ATTACK/HELFEN: the confirmed EFFECT (verb 0x67 + arg-code-2
+# -> internal release trigger) is disassembly-solid, but the exact
+# TYPED WORD behind 0x67 isn't independently confirmed, only inferred
+# from context (the lover's own "Bitte, laßt mich gehen!" line) the
+# same way ATTACK's own German trigger word was never confirmed either.
+#
+# STILL UNPORTED: message 1059 ("Gut. Ich stoße den Typ wieder
+# zurück" - reached when LASS-ing something/someone that ISN'T
+# confirmed as this exact lover+room combination) and message 1054 (a
+# rebuke, triggered by an unconfirmed verb 4 applied to the wife) -
+# real, confirmed text with no confidently-identified trigger this
+# port implements.
+GULTIBA_LOVER_DEATH_MESSAGE = 2311
+GULTIBA_LOVER_DEATH_ANSEHEN = -2
+GULTIBA_LOVER_RELEASE_MESSAGE = 1058
+GULTIBA_LOVER_RELEASE_ANSEHEN = 2
 
 DEFAULT_SAVE_PATH = Path("savegame.json")
 
@@ -185,6 +274,7 @@ MERCHANTS = {
 FOROLL_OBJECT_CODE = 34
 FOROLL_ROOM = 3
 FOROLL_WEAPON_PRICE = 7
+STARTER_WEAPON_SELL_PRICES = {DOLCH_CODE: 5, SCHWERT_CODE: 15}
 
 # The farmer's harvest-help quest (PHASE0_FINDINGS.md UPDATE 68) -
 # found while tracing what raises/lowers Ansehen (user asked directly:
@@ -685,6 +775,58 @@ MYGRA_GIVE_ACCEPT_MESSAGE = (
     "Kommt in ein paar Tagen wieder, dann ist er repariert.'"
 )
 
+# Mygra's other confirmed GIB interaction (user-supplied real DOSBox
+# screenshot, "lerne_spells.png"): giving her money - "geld" isn't a
+# real object (no names.py entry, nothing to resolve via
+# objects_carried()), so this is special-cased in give() before its
+# normal item/recipient split, matching the screenshot's own single-
+# word "gebe geld" (no explicit recipient needed - Mygra is simply
+# whoever's there). ANY amount is accepted but only a flat
+# MYGRA_SPELL_TEACHING_PRICE (3) is ever taken - "'Nein, gebt mir nicht
+# alles. Ich will nur 3 Gerfs.'" - the same "fixed scripted price,
+# regardless of amount offered" shape as Foroll's starter-weapon sale
+# (FOROLL_WEAPON_PRICE), and confirms this is a ONE-TIME event: she
+# teaches "die Zaubersprüche I und II".
+#
+# SPELL_LEARN_ORDER (PHASE0_FINDINGS.md UPDATE 82, correcting UPDATE
+# 81's own initial guess): the original's "Spruch I/II/III/IV/V"
+# copy-protection numbering is a SEPARATE fixed sequence from
+# `SPELL_PROMPT`'s own combat-menu ordering (LEVI, KUBL, FEBR, UNSI,
+# TOPA - independently confirmed via each spell's own `spell_choice`
+# dispatch slot, UPDATE 34/36/37/38) - user-confirmed directly (not
+# from a screenshot this time, but from their own knowledge of the
+# game): Spell I=LEVI, II=FEBR, III=KUBL, IV=UNSI, V=TOPA. Mygra only
+# ever teaches I+II (LEVI+FEBR); III-V are confirmed to require a
+# separate, entirely unmodeled "Magiergilde" (mage guild) mechanic -
+# not implemented here, since nothing beyond this one fact is
+# evidenced about it yet. Ported as "LEVI und FEBR" rather than the
+# original's own "I"/"II" numbering, same established substitution
+# UPDATE 35 already made everywhere else in this port (the real
+# "Spruch N" phrasing was 1990s copy protection, not meaningful
+# in-universe naming).
+#
+# KNOWN GAP, deliberately NOT addressed by this change: nothing outside
+# this one flag reads `aszhanti_known_spells` - SPELL_PROMPT and actual
+# spell-casting (`_resolve_combat_round`) still treat all 5 spells as
+# always available, exactly as before. `spells()`'s own long-standing
+# "KNOWN GAP" comment already flags that which spells unlock when was
+# never confirmed; this event is the first real, confirmed DATA POINT
+# for that question, but wiring a full unlock-gated casting system
+# throughout the rest of combat is a separate, much larger change this
+# pass didn't attempt (it would need a confirmed default starting
+# spell-count for a brand-new game too, which isn't evidenced any more
+# than `self.money`'s own starting value is - see that field's own
+# docstring).
+SPELL_LEARN_ORDER = ["LEVI", "FEBR", "KUBL", "UNSI", "TOPA"]
+MYGRA_SPELL_TEACHING_PRICE = 3
+MYGRA_SPELL_TEACHING_SPELLS = 2  # Spell I+II = LEVI+FEBR (SPELL_LEARN_ORDER)
+MYGRA_SPELL_TEACHING_MESSAGE = (
+    f"'Nein, gebt mir nicht alles. Ich will nur {MYGRA_SPELL_TEACHING_PRICE} "
+    "Gerfs.' sagt Mygra, nimmt sich das Geld und bringt mir dann die "
+    "Zaubersprüche LEVI und FEBR bei. Nach kurzer Zeit habe ich sie unter "
+    "Kontrolle und bedanke mich bei dem Scharlatan."
+)
+
 
 class GameState:
     def __init__(self, assets_dir: Path = DEFAULT_ASSETS_DIR):
@@ -750,6 +892,19 @@ class GameState:
         # a one-time, hardcoded-price scripted purchase, separate from the
         # generic MERCHANTS shop mechanic.
         self._bought_starter_weapons: bool = False
+        # One-time gate for Gultiba's bedroom encounter (room 88, see
+        # GULTIBA_* constants) - only one of its two confirmed
+        # resolutions (attack the lover, or let him go) can ever fire.
+        self._gultiba_bedroom_resolved: bool = False
+        # How many of the 5 real spells, in SPELL_LEARN_ORDER (the
+        # confirmed "Spell I-V" progression order - PHASE0_FINDINGS.md
+        # UPDATE 82), Aszhanti currently knows - see
+        # MYGRA_SPELL_TEACHING_* / give()'s "geld" special case. 0 is
+        # this port's own starting default (same unconfirmed-but-
+        # conservative status as `self.money` defaulting to 0 - see
+        # that field's own docstring), not a claim about what a
+        # brand-new real game starts you with.
+        self.aszhanti_known_spells: int = 0
         # Per-room "impatience" turn counters (see ROOM_IMPATIENCE_EVENTS) -
         # {room: turns spent there} and {room: set of thresholds already
         # fired}, so each stage fires exactly once rather than repeating.
@@ -1024,6 +1179,8 @@ class GameState:
             "money": self.money,
             "visited_rooms": sorted(self._visited_rooms),
             "bought_starter_weapons": self._bought_starter_weapons,
+            "gultiba_bedroom_resolved": self._gultiba_bedroom_resolved,
+            "aszhanti_known_spells": self.aszhanti_known_spells,
             "aszhanti_strength": self.aszhanti_strength,
             "smirga_strength": self.smirga_strength,
             "aszhanti_astral": self.aszhanti_astral,
@@ -1076,6 +1233,8 @@ class GameState:
         self.money = data.get("money", 0)
         self._visited_rooms = set(data.get("visited_rooms", []))
         self._bought_starter_weapons = data.get("bought_starter_weapons", False)
+        self._gultiba_bedroom_resolved = data.get("gultiba_bedroom_resolved", False)
+        self.aszhanti_known_spells = data.get("aszhanti_known_spells", 0)
         self.aszhanti_strength = data.get("aszhanti_strength", 0)
         self.smirga_strength = data.get("smirga_strength", 0)
         self.aszhanti_astral = data.get("aszhanti_astral", 0)
@@ -1168,7 +1327,7 @@ class GameState:
         self._visited_rooms.add(self.current_room)
         text = None
         if first_visit:
-            text = first_visit_text(self.story, self.current_room)
+            text = first_visit_text(self.story, self.current_room, self.narrator)
         if text is None:
             text = look_text(self.story, self.current_room, self.narrator)
         if (
@@ -1261,6 +1420,16 @@ class GameState:
         return result
 
     def examine(self, noun: str) -> str:
+        """EXAMINE (confirmed real verb code 0x32). Gultiba's bedroom
+        (room 88) special-cases its 4 scripted fixtures ahead of the
+        generic path below - they're pure scenery, not really "in" the
+        room via `objects_in_room()` (none are instance-tracked or
+        location-tracked at all), so the generic candidate list would
+        never find them (see GULTIBA_BEDROOM_EXAMINE, UPDATE 87)."""
+        if self.current_room == GULTIBA_BEDROOM_ROOM:
+            fixture_code = self._resolve_noun(noun, list(GULTIBA_BEDROOM_EXAMINE))
+            if fixture_code in GULTIBA_BEDROOM_EXAMINE:
+                return self.story.message(GULTIBA_BEDROOM_EXAMINE[fixture_code])
         candidates = self.objects_in_room(self.current_room) + self.objects_carried()
         code = self._resolve_noun(noun, candidates)
         if code is None:
@@ -1537,6 +1706,7 @@ class GameState:
             f"Bauer-Quest: state={self._farmer_quest_state}  sturm_runden={self._farmer_storm_turns}",
             f"Tuatara-Quest: stage={self._tuatara_quest_stage}  gegruesst={self._tuatara_greeted}",
             f"Potidan-Quest: stage={self._potidan_quest_stage}",
+            f"Bekannte Sprüche (Asz): {self.aszhanti_known_spells}",
             f"Letztes Bild: {self._last_shown_picture}  wartet_auf_bildnummer={self._awaiting_picture_number}",
         ]
         return "\n".join(lines)
@@ -1590,22 +1760,17 @@ class GameState:
 
     def buy_starter_weapons(self) -> str:
         """Foroll's scripted, hardcoded-price sale of the starting
-        dagger+sword bundle - see FOROLL_* constants above. NOT wired
-        into the generic candidate-resolution path buy() uses for
-        MERCHANTS, since it isn't a lookup against item_stats.py at all.
+        dagger+sword bundle - see FOROLL_*/DOLCH_CODE/SCHWERT_CODE
+        constants above. NOT wired into the generic candidate-
+        resolution path buy() uses for MERCHANTS, since it isn't a
+        lookup against item_stats.py at all.
 
-        KNOWN GAP: this deducts the confirmed 7-Gerfs price and marks the
-        purchase done, but does NOT hand over trackable "Dolch"/"Schwert"
-        objects - their real object codes are UNRESOLVED (see
-        PHASE0_FINDINGS.md UPDATE 27, which retracts an earlier "32=Dolch,
-        33=Schwert" guess: those two codes turned out to have a tracked
-        world-instance, a signal that - checked project-wide - means
-        "person/creature", not "item", the same pattern that already
-        identifies them as candidates for room 1's other family member(s)
-        instead. `133` remains a single, unconfirmed candidate for
-        Schwert specifically - matches the confirmed damage cap cleanly
-        but lacks a second independent signal. Wire in real object codes
-        here once they're properly confirmed."""
+        Now hands over real, trackable Dolch/Schwert objects (UPDATE
+        84/85 resolved their object codes) - `_bought_starter_weapons`
+        remains a separate one-time flag (not replaced by an inventory
+        check) since it also gates Foroll's own impatience nagging and
+        the "already bought" refusal below, which should stay true even
+        if the player later sells or drops one of the weapons again."""
         if self.current_room != FOROLL_ROOM:
             return "Hier ist Foroll nicht, um mir Waffen zu verkaufen."
         if self._bought_starter_weapons:
@@ -1617,6 +1782,8 @@ class GameState:
             )
         self.money -= FOROLL_WEAPON_PRICE
         self._bought_starter_weapons = True
+        self._move_object(DOLCH_CODE, LIMBO_CARRIED)
+        self._move_object(SCHWERT_CODE, LIMBO_CARRIED)
         return (
             f"Ich zahle Foroll {FOROLL_WEAPON_PRICE} Gerfs. Er gibt mir Dolch und Schwert."
         )
@@ -1649,6 +1816,13 @@ class GameState:
         return f"Gekauft für {price} Gerfs. Ich habe noch {self.money} Gerfs."
 
     def sell(self, noun: str) -> str:
+        """Sell an item to whichever merchant is present. Dolch/Schwert
+        (UPDATE 84/85) use their own confirmed, hardcoded prices
+        (`STARTER_WEAPON_SELL_PRICES`) instead of the generic
+        `item_stats.py` lookup, the same way `buy_starter_weapons()`
+        buys them outside the regular catalog - both are absent from
+        item_stats.py entirely, confirming they were never meant to go
+        through the generic per-merchant price table."""
         merchant = self._merchant_here()
         if merchant is None:
             return "Hier ist kein Händler, bei dem ich etwas verkaufen könnte."
@@ -1658,7 +1832,9 @@ class GameState:
         code = self._resolve_noun(noun, self.objects_carried())
         if code is None:
             return "Das trage ich nicht bei mir."
-        price = self.item_stats.lookup(code, info["sell_field"])
+        price = STARTER_WEAPON_SELL_PRICES.get(code)
+        if price is None:
+            price = self.item_stats.lookup(code, info["sell_field"])
         if price <= 0:
             return f"{info['name']} hat daran kein Interesse."
         self.money += price
@@ -1718,9 +1894,17 @@ class GameState:
         PHASE0_FINDINGS.md UPDATE 45). Narrow and purpose-built for its
         confirmed uses (handing the depleted Skarabäus to Mygra for
         recharging; returning Phadraig's oar once the Tuatara quest is
-        resolved, UPDATE 69) - not a general give-to-NPC system;
+        resolved, UPDATE 69; giving her money for spell lessons, see
+        `_give_money_to_mygra()`) - not a general give-to-NPC system;
         anything else is politely refused rather than silently
         accepted."""
+        if raw and raw.strip().lower() == "geld":
+            # "geld" isn't a real object (no names.py entry) - handled
+            # here, before the normal item/recipient split below, since
+            # there's nothing to resolve via objects_carried(). Matches
+            # the confirmed screenshot's own single-word "gebe geld"
+            # (no explicit recipient - whoever's there receives it).
+            return self._give_money_to_mygra()
         if not raw or len(raw.split()) < 2:
             return "Wem soll ich das geben?"
         *item_words, recipient_word = raw.split()
@@ -1745,6 +1929,26 @@ class GameState:
             return self._give_potidan(item_code)
         recipient_name = self._object_display_name(recipient_code)
         return f"{recipient_name} kann damit nichts anfangen."
+
+    def _give_money_to_mygra(self) -> str:
+        """GIB GELD - see the MYGRA_SPELL_TEACHING_* constants' own
+        docstring above for the full derivation. One-time (gated on
+        `aszhanti_known_spells`); the "not enough money"/"already
+        learned"/"Mygra not here" messages below are this port's own
+        reasonable fallback text, NOT verbatim decompiled strings -
+        same status as buy_starter_weapons()'s equivalent fallbacks."""
+        if MYGRA_OBJECT_CODE not in self.objects_in_room(self.current_room):
+            return "Wem soll ich das geben?"
+        if self.aszhanti_known_spells >= MYGRA_SPELL_TEACHING_SPELLS:
+            return "'Mehr kann ich dir gerade nicht beibringen.' meint Mygra."
+        if self.money < MYGRA_SPELL_TEACHING_PRICE:
+            return (
+                f"'Tja, ich brauche schon {MYGRA_SPELL_TEACHING_PRICE} Gerfs dafür.' "
+                f"(Ich habe nur {self.money} Gerfs.)"
+            )
+        self.money -= MYGRA_SPELL_TEACHING_PRICE
+        self.aszhanti_known_spells = MYGRA_SPELL_TEACHING_SPELLS
+        return MYGRA_SPELL_TEACHING_MESSAGE
 
     def _give_potidan(self, item_code: int) -> str:
         """Confirmed real reward (flat 0x17398, PHASE0_FINDINGS.md
@@ -2016,12 +2220,27 @@ class GameState:
     #
     # See combat.py's own docstring for the confirmed formula this
     # ports and its deliberate simplifications. Prompting for weapon/
-    # spell choices now matches the real UI, but neither has a real
-    # effect yet beyond LEVI (see combat.resolve_levi() and UPDATE 34):
-    # weapon codes (Dolch/Schwert) are unresolved (UPDATE 27) and most
-    # of the spell system isn't implemented (a separate, much larger
-    # mechanic - UPDATE 24's spell follow-up) - see `_combat_answer()`'s
-    # own docstring.
+    # spell choices now matches the real UI. Two checks are wired in
+    # (PHASE0_FINDINGS.md UPDATE 83), both requested directly rather
+    # than evidenced by a specific screenshot - reasonable common-sense
+    # gameplay validation, not fabricated combat math:
+    #   - WEAPON POSSESSION: choosing Dolch/Schwert at the weapon prompt
+    #     is refused (reprompting) unless `_bought_starter_weapons` is
+    #     set - the best available proxy for "does Smirga actually have
+    #     a weapon", since the real object codes for Dolch/Schwert are
+    #     themselves unresolved (UPDATE 27) and buy_starter_weapons()
+    #     never grants trackable objects (its own KNOWN GAP). The
+    #     chosen weapon still has NO effect on the round's damage math
+    #     either way - `weapon_damage_bonus` stays 0 - since the real
+    #     per-weapon bonus VALUES are exactly the unresolved part of
+    #     UPDATE 27; adding possession-checking is a UI-layer
+    #     correctness fix, not new (fabricated) combat math.
+    #   - SPELL KNOWLEDGE: casting a real spell name Aszhanti hasn't
+    #     learned yet (`aszhanti_known_spells`/`SPELL_LEARN_ORDER` - see
+    #     MYGRA_SPELL_TEACHING_*, UPDATE 81/82) now has no effect,
+    #     exactly like typing an unrecognized spell name already did -
+    #     no new message/reprompt invented for this case specifically,
+    #     since the real game's own behavior here isn't evidenced.
     #
     # SPELL_PROMPT deliberately shows the real magic words (LEVI, KUBL,
     # FEBR, UNSI, TOPA) rather than the original's own "Spruch I,
@@ -2036,6 +2255,18 @@ class GameState:
 
     WEAPON_PROMPT = "Welche Waffe soll Smirga verwenden?\nDolch, Schwert, Hände oder Fliehen."
     SPELL_PROMPT = "Welchen Zauber soll Aszhanti schleudern?\nLEVI, KUBL, FEBR, UNSI, TOPA oder Keinen."
+
+    # Weapon-possession check at the weapon prompt (UPDATE 83, now
+    # backed by real inventory since UPDATE 84/85 resolved DOLCH_CODE/
+    # SCHWERT_CODE) - "Hände" (bare hands) needs no item at all, so it
+    # isn't listed here. A real `objects_carried()` check (rather than
+    # the earlier `_bought_starter_weapons` proxy) also correctly
+    # refuses a weapon the player has since sold or dropped.
+    WEAPON_CODES = {"dolch": DOLCH_CODE, "schwert": SCHWERT_CODE}
+    WEAPON_NOT_OWNED_MESSAGES = {
+        "dolch": "Ich habe keinen Dolch dabei.",
+        "schwert": "Ich habe kein Schwert dabei.",
+    }
 
     def _object_display_name(self, code: int) -> str:
         names = OBJECT_NAMES.get(code)
@@ -2110,7 +2341,26 @@ class GameState:
         round - see this section's own docstring for the confirmed
         Q&A flow. If already fighting, just re-sends whichever prompt
         is currently pending (weapon or spell) instead of starting a
-        new fight."""
+        new fight.
+
+        Gultiba's bedroom's lover (GULTIBA_LOVER_CODE) is special-cased
+        ahead of the generic instance-based flow - he isn't instance-
+        tracked (he's pure scripted scenery, not a fightable monster),
+        and attacking him doesn't start a real fight at all - it's a
+        confirmed, one-shot scripted outcome (see
+        `_resolve_gultibas_bedroom_encounter()`, UPDATE 87/88; only one
+        of ATTACK/LASS can ever resolve the scene -
+        `_gultiba_bedroom_resolved` gates both)."""
+        if (
+            self._combat_instance_idx is None
+            and self.current_room == GULTIBA_BEDROOM_ROOM
+            and not self._gultiba_bedroom_resolved
+            and noun
+            and self._resolve_noun(noun, [GULTIBA_LOVER_CODE]) == GULTIBA_LOVER_CODE
+        ):
+            return self._resolve_gultibas_bedroom_encounter(
+                GULTIBA_LOVER_DEATH_ANSEHEN, GULTIBA_LOVER_DEATH_MESSAGE
+            )
         if self._combat_instance_idx is None:
             if not noun:
                 return "Wen soll ich angreifen?"
@@ -2124,6 +2374,42 @@ class GameState:
             self._start_combat(code)
         return self.WEAPON_PROMPT if self._combat_awaiting == "weapon" else self.SPELL_PROMPT
 
+    def release(self, noun: str | None) -> str:
+        """LASS <noun> [GEHEN] - see the GULTIBA_LOVER_RELEASE_* constants'
+        own docstring for the disassembly trace behind this verb and its
+        confidence caveats (PHASE0_FINDINGS.md UPDATE 88). Narrow and
+        purpose-built, like HELFEN/RUDERE/KLETTERE - not a general
+        "release" mechanic; anything else is politely refused."""
+        if not noun:
+            return "Wen soll ich gehen lassen?"
+        words = [w for w in noun.split() if w not in ("gehen", "frei", "los")]
+        stripped_noun = " ".join(words) if words else noun
+        if (
+            self.current_room == GULTIBA_BEDROOM_ROOM
+            and not self._gultiba_bedroom_resolved
+            and self._resolve_noun(stripped_noun, [GULTIBA_LOVER_CODE]) == GULTIBA_LOVER_CODE
+        ):
+            return self._resolve_gultibas_bedroom_encounter(
+                GULTIBA_LOVER_RELEASE_ANSEHEN, GULTIBA_LOVER_RELEASE_MESSAGE
+            )
+        return "Das kann ich nicht loslassen."
+
+    def _resolve_gultibas_bedroom_encounter(self, ansehen_delta: int, message_index: int) -> str:
+        """Shared by both of the scene's confirmed resolutions
+        (`attack()`'s special case, and `release()`) - see the
+        GULTIBA_* constants' own docstring for the full derivation.
+        Ansehen shifts by `ansehen_delta`, the Dolch (UNLOCK_GATE_
+        OBJECT, not the Schwert key itself) is lost to true limbo -
+        the same object-relocation call the room's own handler makes
+        for both outcomes - and the puzzle door relocks behind you.
+        One-shot: only the first call for a given game does anything,
+        gated by `_gultiba_bedroom_resolved`."""
+        self._gultiba_bedroom_resolved = True
+        self.ansehen += ansehen_delta
+        self._move_object(DOLCH_CODE, LIMBO_REMOVED)
+        self._set_door_state(UNLOCK_ROOM, 0, DOOR_LOCKED)
+        return self.story.message(message_index)
+
     def _combat_answer(self, raw: str, rng=random) -> str:
         """Handles the player's plain typed answer to whichever combat
         prompt is pending (`_combat_awaiting`) - routed here directly
@@ -2131,21 +2417,31 @@ class GameState:
         the same way the real game's own combat Q&A works (you type
         "Schwert", not "attackiere Schwert").
 
-        KNOWN SIMPLIFICATION: accepts any text as the weapon/spell
-        choice; the weapon choice isn't applied to the round's math at
-        all (real weapon modifiers are a separately documented gap -
-        see this section's own docstring). "Fliehen" (and equivalents)
-        is specially recognized at the weapon prompt, ending the fight
-        via `flee()`. All 5 real spell names - "LEVI", "KUBL", "UNSI",
-        "TOPA", "FEBR" - are recognized at the spell prompt and apply
-        their confirmed real effects (see `combat.resolve_levi()`/
-        `resolve_kubl()`/`resolve_unsi()`/`resolve_topa()`/
-        `resolve_febr()`); any other typed text has no effect."""
+        "Fliehen" (and equivalents) is specially recognized at the
+        weapon prompt, ending the fight via `flee()`. Choosing "Dolch"
+        or "Schwert" without currently carrying it (`WEAPON_CODES`/
+        `objects_carried()` - UPDATE 83, backed by real inventory since
+        UPDATE 84/85) is refused and re-prompted - "Hände" and anything
+        else proceeds as before. KNOWN SIMPLIFICATION: even an owned
+        weapon still isn't applied to the round's math (real weapon
+        modifiers are a separately documented gap - see this section's
+        own docstring).
+
+        All 5 real spell names - "LEVI", "KUBL", "UNSI", "TOPA", "FEBR"
+        - are recognized at the spell prompt and apply their confirmed
+        real effects (see `combat.resolve_levi()`/`resolve_kubl()`/
+        `resolve_unsi()`/`resolve_topa()`/`resolve_febr()`) IF Aszhanti
+        has actually learned them yet (`aszhanti_known_spells`, UPDATE
+        83) - otherwise, same as any other unrecognized text, it has no
+        effect."""
         answer = raw.strip().lower()
         if self._combat_awaiting == "weapon":
             if answer in ("fliehen", "flee", "flieh"):
                 self._combat_awaiting = None
                 return self.flee()
+            weapon_code = self.WEAPON_CODES.get(answer)
+            if weapon_code is not None and weapon_code not in self.objects_carried():
+                return f"{self.WEAPON_NOT_OWNED_MESSAGES[answer]}\n\n{self.WEAPON_PROMPT}"
             self._combat_awaiting = "spell"
             return self.SPELL_PROMPT
 
@@ -2265,6 +2561,13 @@ class GameState:
         self._check_player_death(lines)
         if not self.running:
             return "\n".join(lines)
+
+        known_spells = {name.lower() for name in SPELL_LEARN_ORDER[: self.aszhanti_known_spells]}
+        if spell_choice not in known_spells:
+            # A real spell name Aszhanti hasn't learned yet - same as
+            # any other unrecognized text, falls through with no effect
+            # (UPDATE 83; see MYGRA_SPELL_TEACHING_*/SPELL_LEARN_ORDER).
+            spell_choice = None
 
         if spell_choice == "levi":
             levi = combat.resolve_levi(
@@ -2538,8 +2841,7 @@ class GameState:
     def _check_key(self, instrument: str | None) -> str | None:
         """Shared LOCK/UNLOCK key-object gate. Returns an error message
         if the check fails, or None if the key was correctly specified
-        (object code 1 - identity not yet known by name, see
-        names.py)."""
+        (`KEY_OBJECT_CODE` - Schwert, confirmed UPDATE 84/85)."""
         if not instrument:
             return "Womit?"
         code = self._resolve_noun(instrument, self.objects_carried())
@@ -2579,6 +2881,31 @@ class GameState:
         self._set_door_state(self.current_room, slot, DOOR_CLOSED)
         return f"Ich schließe die Tür Richtung {DIRECTION_NAMES[slot]} auf."
 
+    def cheat(self, noun: str) -> str:
+        """Cheat commands - not in the original game. `noun` is the
+        verb's typed noun (e.g. "teleport 10" -> "10")."""
+        if noun == "teleport":
+            return "Wohin?"
+        if noun.startswith("teleport "):
+            try:
+                room = int(noun.split(" ", 1)[1])
+            except ValueError:
+                return "Ungültige Raumnummer."
+            if room < 0 or room >= len(self.world.rooms):
+                return "Ungültige Raumnummer."
+            self.current_room = room
+            return f"Wir teleportieren uns nach Raum {room}.\n\n{self.look()}"
+        if noun == "money":
+            self.money = 9999
+            return "Wir haben jetzt 9999 Münzen."
+        if noun == "kill":
+            self.aszhanti_health = 0
+            self.smirga_health = 0
+            self.running = False
+            return "Wir sind tot."
+        return f"Unbekannter Cheat: {noun}"
+
+
     HELP_TEXT = (
         "Bewegung: n/s/e/w/ne/se/sw/nw (oder 'gehe norden' usw.)\n"
         "schau                          - Raum ansehen\n"
@@ -2613,6 +2940,11 @@ class GameState:
     # --- top-level command dispatch ---
 
     def execute(self, command: Command) -> str:
+        #print(command)
+        if command.verb == "CHEAT":
+            if not command.noun:
+                return "Welcher Cheat?"
+            return self.cheat(command.noun)
         if command.verb in DIRECTIONS:
             return self.go(command.verb)
         if command.verb == "LOOK":
@@ -2661,6 +2993,8 @@ class GameState:
             return self.give(command.noun)
         if command.verb == "HELFEN":
             return self.helfen(command.noun)
+        if command.verb == "LASS":
+            return self.release(command.noun)
         if command.verb == "FRAGE":
             return self.frage(command.noun)
         if command.verb == "KLETTERE":

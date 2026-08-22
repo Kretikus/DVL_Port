@@ -69,9 +69,19 @@ ROOM_LOOK_MESSAGE: dict[int, int | list] = {
               # the room's handler (flat 0x147bd): `cmp word_b722, 0x1a` selects 93/96 (Smirga
               # narrating, third-person "seine Eltern") vs. 94/97 (Aszhanti narrating, first-person
               # "meine Eltern") - see characters.py. Message 99 right after this is the room's
-              # separate first-entry EVENT text (parents' breakfast scene), not part of the base
-              # "look" description - not wired in yet (game.py has no first-entry-event concept
-              # currently).
+              # separate first-entry EVENT text (parents' breakfast scene) - now wired in, see
+              # ROOM_FIRST_VISIT_MESSAGE below (UPDATE 89).
+              #
+              # NEWLY FOUND, NOT wired in (UPDATE 89): the whole first-visit check is itself
+              # nested inside a `byte_b40a` (dragon mood, confirmed elsewhere) gate - `mood>=0`
+              # takes this whole path (base text + first-visit-gated 99); `mood<0` instead jumps
+              # to an ENTIRELY DIFFERENT description (3 more messages at dseg 0xa68a/0xa690/0xa692,
+              # not yet resolved to STORY message numbers - unlike every other far-pointer message
+              # this project has decoded, these read as raw segment:offset pairs pointing outside
+              # the confirmed message-table addressing scheme, needing new work to decode). This
+              # port doesn't track dragon mood as live state at all yet (RESTORE's own saved byte
+              # is +1 - satisfies the "good mood" branch by default, which is why skipping this
+              # gate entirely is a safe simplification for now, not a guess).
     2: 110,   # "Smirgas Elternhaus" - confirmed: NPC count (2 tracked objects = "Har und Aqima sind hier")
     10: [227, 229, 230],  # "Vor Hyllok" / "Hügelland vor Hyllok" - CORRECTED (see below):
               # confirmed by degree-matching against the fan map (a real hub, degree 7 in the map:
@@ -81,8 +91,30 @@ ROOM_LOOK_MESSAGE: dict[int, int | list] = {
               # narrating, defaults to 227), 229+230 are the shared continuation. Directly
               # cross-checked against two further user-provided screenshots ("An einem Fluß" x2,
               # messages 324/325) reachable from here.
-    4: 139,   # "Beim Scharlatan" (Mygra's house) - confirmed: object #35's text fragment
-              # (" Mitte des Raum") matches "...der die Mitte des Raums bildet" in this room's text
+    4: [139, 155],   # "Beim Scharlatan" (Mygra's house) - confirmed: object #35's text
+              # fragment (" Mitte des Raum") matches "...der die Mitte des Raums bildet" in
+              # this room's text. 155 (the Drachenblut/Notizzettel continuation) confirmed
+              # via `room_handler_by_address.py` (immediately follows 139 in room 4's own
+              # handler) AND a user-supplied screenshot showing this exact continuation
+              # ("Eine große Lache dunkelroter Flüssigkeit...Unschwer identifiziere ich es
+              # als Drachenblut!") right after 139's text, before "Mygra ist hier."
+              #
+              # NOT actually unconditional in the real game, but PROVEN to always evaluate
+              # true - traced the exact gating check (PHASE0_FINDINGS.md UPDATE 80): room 4's
+              # handler calls a shared helper (flat 0xABB0) with (object=0x23/35=Mygra,
+              # room=word_b34e), which - since Mygra's `handler_selector` low byte is 9 -
+              # searches her object descriptor's own embedded room-association list (the
+              # "+0x0A+ variable per-object data" objects.py's own docstring flagged as an
+              # unconfirmed, ambiguous field) for the current room, printing 155 only if
+              # found. Mygra's list is exactly `[4]` (her own home, cross-checking the room
+              # number independently) and nothing else - she has no day/night roster entry,
+              # so this can never be any other value while room 4's own handler is running.
+              # Genuinely conditional data, but a condition that can never actually go the
+              # other way during real play - not a simplification after all.
+              #
+              # Message 152/153's "lick the blood"/"no more blood" pair is a SEPARATE,
+              # still entirely unmodeled interaction, not traced this pass - a real gap,
+              # just not one that affects whether 155 itself shows.
     3: 126,   # "Schmiede" (Foroll's forge) - confirmed: exact text match. Also resolves what room 3
               # actually is (the room 10 mixup above wrongly assumed it was "Vor Hyllok"); its
               # single-exit-back-to-67 structure matches a simple forge dead-end far better anyway.
@@ -347,18 +379,22 @@ ROOM_LOOK_MESSAGE: dict[int, int | list] = {
               # E:87, S:84, W:86} match; S reciprocates 84's N->85.
     86: 1014, # Nichidor's forge (a dark hall, a large fire) - room86's only exit E->85
               # reciprocates 85's W->86.
-    88: [1047, 1048], # Gultiba's bedroom - a scripted affair/confrontation scene ("Ehebruch
-              # nennt man das glaube ich!", catching Gultiba's wife and another man together),
-              # then the room's standing "look" text once inside ("Wir stehen in Gultibas
-              # Schlafzimmer..."). Resolved via a genuine TOOL bug fix, not a scanner artifact:
-              # this room's handler sits in a different overlay segment than its next-by-address
-              # neighbor (room 100, already in the following segment), so bounding message
-              # extraction purely by "next handler's address" read straight through unmapped
-              # inter-segment padding, threw inside idc.GetManyBytes, and got silently swallowed
-              # into an empty message list - room 88 looked like a handler with no text at all
-              # (see tools/room_handler_by_address.py's resolve_all_with_messages(), now bounded
-              # by min(next handler address, this segment's own end)). Room 88's only real exit
-              # S->85 reciprocates confirmed room85's N->88.
+    88: 1048, # Gultiba's bedroom - the room's standing "look" text once inside ("Wir stehen in
+              # Gultibas Schlafzimmer..."), shown on every visit after the first. The FIRST
+              # visit's own scripted scene (message 1047 - "Ehebruch nennt man das glaube
+              # ich!", catching Gultiba's wife and another man together) is a separate,
+              # one-time event - see ROOM_FIRST_VISIT_MESSAGE below, same split as room 4's
+              # own entry (UPDATE 79/87). Originally resolved via a genuine TOOL bug fix, not a
+              # scanner artifact: this room's handler sits in a different overlay segment than
+              # its next-by-address neighbor (room 100, already in the following segment), so
+              # bounding message extraction purely by "next handler's address" read straight
+              # through unmapped inter-segment padding, threw inside idc.GetManyBytes, and got
+              # silently swallowed into an empty message list - room 88 looked like a handler
+              # with no text at all (see tools/room_handler_by_address.py's
+              # resolve_all_with_messages(), now bounded by min(next handler address, this
+              # segment's own end)). Room 88's only real exit S->85 reciprocates confirmed
+              # room85's N->88 (the confirmed locked door - see game.py's KEY_OBJECT_CODE/
+              # UNLOCK_GATE_OBJECT/GULTIBA_BEDROOM_* constants).
 
     # --- third batch: Scarbloom's remaining alleys and mysteries, resolved/corrected by the
     # same direct-handler-lookup method (see the MAJOR CORRECTION note above room 14). 50/51/52
@@ -441,6 +477,18 @@ ROOM_LOOK_MESSAGE: dict[int, int | list] = {
 # newest addendum. Distinct from ROOM_LOOK_MESSAGE's room 3 entry (126),
 # which is the STANDING text shown on every later visit.
 ROOM_FIRST_VISIT_MESSAGE: dict[int, int | list] = {
+    # "Aszhantis Elternhaus" (room 1) - UPDATE 89, the ORIGINAL flagged
+    # gap this whole dict started from (see ROOM_LOOK_MESSAGE's own
+    # comment on room 1). Confirmed via direct disassembly (flat
+    # 0x147bd) that this room's shape is DIFFERENT from every other
+    # entry here: the base description (93-98, same narrator-dependent
+    # structure as ROOM_LOOK_MESSAGE[1]) is printed UNCONDITIONALLY,
+    # THEN message 99 (Sklar/Phira's breakfast-table scene) is
+    # APPENDED - not swapped in - the first time only. Duplicating the
+    # base structure here (rather than changing first_visit_text()'s
+    # own "replace, don't append" semantics, which room 3/4/88 all
+    # correctly rely on) keeps every other entry's behavior unchanged.
+    1: [(93, 94), 95, (96, 97), 98, 99],
     3: [123, 124],  # door creaks open (123) + Foroll's full greeting,
                     # ending in the exact confirmed line "'Tja, habts er
                     # denn auch Geld? Macht genau 7 Gerfs.'" - the
@@ -449,17 +497,87 @@ ROOM_FIRST_VISIT_MESSAGE: dict[int, int | list] = {
                     # game.py - NOT part of the generic item_stats.py shop
                     # table, confirmed absent from WORLD Section 1 for
                     # "Dolch" specifically).
+
+    # "Beim Scharlatan" (room 4) - confirmed via `room_handler_by_address.py`
+    # (the `laas` analysis project's confirmed room-dispatch-table lookup,
+    # PHASE0_FINDINGS.md UPDATE 13): running it directly against room 4
+    # returns its handler's REAL message references in disassembly order -
+    # 135, 137, 136, 138, 139, 155, ... - confirming 135-138 are part of
+    # THIS room's own handler (not a separate room; see ROOM_LOOK_MESSAGE's
+    # entry for 4 below), sitting immediately before the already-known
+    # base look message (139), matching the exact same "first-visit scene
+    # precedes the base description" shape as room 3's entry above. Two
+    # user-supplied DOSBox screenshots of a first-ever visit (entering
+    # from the Dorfplatz, paginated across a "(Taste)" prompt) matched
+    # messages 135 (entry narration) + 138 (Mygra's monologue) byte-for-
+    # byte, including the exact two closing sentences the port was
+    # missing entirely ("Als er seinen Monolog endlich beendet
+    # hat...'Ja was wollt ihr denn?'..."). 136/137 is message 138's
+    # narrator-dependent greeting clause, same tuple convention as
+    # ROOM_LOOK_MESSAGE's room-1 entry: 137 uses third person ("...grüßt
+    # ihn Aszhanti...er erwidert...") for Smirga narrating, 136 first
+    # person ("...grüße ich ihn...") for Aszhanti - `(137, 136)` =
+    # (smirga_message, aszhanti_message).
+    4: [135, (137, 136), 138],
+
+    # Gultiba's bedroom (room 88) - confirmed via `room_handler_by_
+    # address.py` (PHASE0_FINDINGS.md UPDATE 87), the exact same
+    # "leading messages precede the already-known base look message"
+    # shape as room 4's own entry above, and one of UPDATE 79's own
+    # flagged-but-unconfirmed candidate rooms - now confirmed. Message
+    # 1047 is the full "walk in on Gultiba's wife and her lover" scene,
+    # word-for-word ending in "'Ehebruch nennt man das glaube ich!'" -
+    # shown once, replaced by the room's plain standing text (1048,
+    # ROOM_LOOK_MESSAGE) on every later visit. No narrator branch found
+    # in the handler for this one, unlike room 4's greeting clause.
+    88: 1047,
 }
 
 
-def first_visit_text(story, room_number: int) -> str | None:
+# UNCONFIRMED CANDIDATES for more rooms with the same "unwired leading
+# first-visit messages" shape as room 4 above (PHASE0_FINDINGS.md UPDATE
+# 79) - found by running `room_handler_by_address.py`'s full pipeline
+# across every room in ROOM_LOOK_MESSAGE and checking for real message
+# indices (below 2360, STORY's own total message count - anything at or
+# above that is a confirmed noise value from the tool's own addressing
+# quirk) referenced BEFORE each room's already-known base look message.
+# Deliberately NOT wired in: a single room handler often mixes LOOK text
+# with other verbs' hardcoded responses in one compiled function, so an
+# earlier-appearing message reference doesn't reliably mean "first-visit
+# event" without a real screenshot to confirm against. Rooms:
+# 2, 7, 8, 10, 20, 21, 25, 27, 32, 41, 50, 55, 61, 63, 64, 65, 77, 79,
+# 103, 106 - re-run the tool against any of these and match the result
+# against real gameplay text before wiring one in. (1 and 88 were on
+# this list too - UPDATE 87/89 confirmed and wired both in, see
+# ROOM_FIRST_VISIT_MESSAGE above.)
+
+
+def _resolve_message_items(entry, narrator: Character) -> list[int]:
+    """Shared by `look_text()`/`first_visit_text()`: normalize a
+    ROOM_LOOK_MESSAGE/ROOM_FIRST_VISIT_MESSAGE entry (a bare int, a list,
+    or a list mixing plain ints with (smirga_msg, aszhanti_msg) narrator
+    tuples) into a flat list of concrete message indices for `narrator`."""
+    items = entry if isinstance(entry, list) else [entry]
+    indices = []
+    for item in items:
+        if isinstance(item, tuple):
+            smirga_msg, aszhanti_msg = item
+            indices.append(smirga_msg if narrator == Character.SMIRGA else aszhanti_msg)
+        else:
+            indices.append(item)
+    return indices
+
+
+def first_visit_text(story, room_number: int, narrator: Character = DEFAULT_NARRATOR) -> str | None:
     """Full concatenated FIRST-VISIT text for `room_number`, or None if
-    this room has no confirmed scripted first-visit scene."""
+    this room has no confirmed scripted first-visit scene. `narrator`
+    selects the active party member for any narrator-dependent clause
+    (see room 4's entry above), same convention as `look_text()`."""
     entry = ROOM_FIRST_VISIT_MESSAGE.get(room_number)
     if entry is None:
         return None
-    items = entry if isinstance(entry, list) else [entry]
-    return " ".join(story.message(i) for i in items)
+    indices = _resolve_message_items(entry, narrator)
+    return " ".join(story.message(i) for i in indices)
 
 
 def look_text(story, room_number: int, narrator: Character = DEFAULT_NARRATOR) -> str | None:
@@ -470,14 +588,7 @@ def look_text(story, room_number: int, narrator: Character = DEFAULT_NARRATOR) -
     entry = ROOM_LOOK_MESSAGE.get(room_number)
     if entry is None:
         return None
-    items = entry if isinstance(entry, list) else [entry]
-    indices = []
-    for item in items:
-        if isinstance(item, tuple):
-            smirga_msg, aszhanti_msg = item
-            indices.append(smirga_msg if narrator == Character.SMIRGA else aszhanti_msg)
-        else:
-            indices.append(item)
+    indices = _resolve_message_items(entry, narrator)
     # Adjacent messages split mid-sentence at a word boundary with no
     # space baked into either fragment (e.g. message 94 ends "...einem",
     # message 95 starts "kleinen...") - join with a space, not directly.

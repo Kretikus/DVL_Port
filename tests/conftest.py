@@ -3,10 +3,10 @@ from pathlib import Path
 import pytest
 
 from laas_port import pictures
-from laas_port.game import DEFAULT_ASSETS_DIR, GameState
+from laas_port.game import DEFAULT_ASSETS_DIR, DOLCH_CODE, SCHWERT_CODE, GameState
 from laas_port.objects import ObjectTable
 from laas_port.story import Story
-from laas_port.world import World
+from laas_port.world import LIMBO_CARRIED, World
 
 ASSETS_DIR = DEFAULT_ASSETS_DIR
 
@@ -42,5 +42,24 @@ def objects(story) -> ObjectTable:
 def game() -> GameState:
     """A fresh GameState per test - deliberately NOT session-scoped, since
     verbs mutate runtime state (location/door overrides) and tests must
-    not leak state into each other."""
-    return GameState(ASSETS_DIR)
+    not leak state into each other.
+
+    `_bought_starter_weapons` starts True, and Dolch/Schwert start
+    carried, here (UPDATE 83's weapon-possession check at the combat
+    weapon prompt would otherwise refuse every test's "Schwert" answer,
+    and virtually the entire combat test suite uses that as its generic
+    weapon choice - the tests that specifically exercise the purchase
+    flow itself, buy_starter_weapons(), explicitly reset all three
+    first). Since UPDATE 84/85 resolved DOLCH_CODE/SCHWERT_CODE, the
+    weapon check reads real inventory rather than the flag alone, so
+    granting just the flag is no longer enough. Same rationale as every
+    other RESTORE-based default this fixture carries: a mid-game save
+    is far more likely to already have this basic, near-mandatory early
+    purchase done than not - not a claim about a brand-new game's real
+    starting state, which GameState's own default (False, no weapons
+    carried) still reflects for actual play."""
+    gs = GameState(ASSETS_DIR)
+    gs._bought_starter_weapons = True
+    gs._move_object(DOLCH_CODE, LIMBO_CARRIED)
+    gs._move_object(SCHWERT_CODE, LIMBO_CARRIED)
+    return gs
